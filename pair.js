@@ -528,35 +528,38 @@ function setupCommandHandlers(socket, number) {
                     break;
                 }
                 // ALIVE COMMAND WITH BUTTON
-                case 'alive': {
+// ALIVE COMMAND WITH BUTTON
+case 'alive': {
     const startTime = socketCreationTime.get(number) || Date.now();
     const uptime = Math.floor((Date.now() - startTime) / 1000);
     const hours = Math.floor(uptime / 3600);
     const minutes = Math.floor((uptime % 3600) / 60);
     const seconds = Math.floor(uptime % 60);
 
+    // React emoji
     await socket.sendMessage(sender, {
         react: { text: "💖", key: msg.key }
     });
 
+    // Title + Content
     const title = '🌟 𝗖𝗛𝗔𝗠𝗔 𝗠𝗜𝗡𝗜 𝐁𝐎𝐓 𝐈𝐒 𝐀𝐋𝐈𝐕𝐄 🌟';
     const content = `
 ┏━━❀* BOT INFO *❀━━┓
 ┃ 🤖 *Name:* ${config.BOT_NAME}
-┃ 👑 *Owner:* ${config.OWNER_NAME}
-┃ 🏷️ *Version:* ${config.BOT_VERSION}
+┃ 👑 *Owner:* 𝗖𝙷𝙰𝙼𝙸𝙽𝙳𝚄
+┃ 🏷️ *Version:* 1.0.0V
 ┃ ☁️ *Platform:* Heroku
 ┃ ⏳ *Uptime:* ${hours}h ${minutes}m ${seconds}s
 ┗━━━━━━━━━━━━━━━━━━┛
 
 🌐 *Website:* Coming Soon...😅
-💌 *Thanks for using ${config.BOT_NAME}!*
+💌 *Thanks for using ${BOT_NAME_FANCY}!*
     `.trim();
 
-    const footer = `💠 ${config.BOT_FOOTER} 💠`;
+    const footer = `💠 ${BOT_NAME_FANCY} 💠`;
 
+    // Round video (alive animation)
     const videoNoteUrl = 'https://github.com/Chamijd/KHAN-DATA/raw/refs/heads/main/logo/VID-20250508-WA0031(1).mp4';
-
     try {
         await socket.sendMessage(sender, {
             video: { url: videoNoteUrl },
@@ -567,13 +570,17 @@ function setupCommandHandlers(socket, number) {
         console.error("Error sending video note:", e);
     }
 
+    // --- Only 2 Buttons (MENU + PING) ---
+    const buttons = [
+        { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 MENU" }, type: 1 },
+        { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "📡 PING" }, type: 1 }
+    ];
+
+    // Final Alive Message
     await socket.sendMessage(sender, {
         image: { url: config.BUTTON_IMAGES.ALIVE },
         caption: formatMessage(title, content, footer),
-        buttons: [
-            { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: '📜 MENU' }, type: 1 },
-            { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: '📡 PING' }, type: 1 }
-        ],
+        buttons: buttons,
         headerType: 4,
         quoted: msg
     });
@@ -696,8 +703,6 @@ case 'menu': {
 │ 🤖 *BOT INFO*
 │ ${config.PREFIX}alive
 │ 
-│ ⚙️ *SETTINGS*
-│ ${config.PREFIX}setting
 │ 
 ╰───────────────❏
 
@@ -709,8 +714,7 @@ case 'menu': {
         { buttonId: `${config.PREFIX}other`, buttonText: { displayText: "🌐 OTHER MENU" }, type: 1 },
         { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 OWNER INFO" }, type: 1 },
         { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "⚡ PING" }, type: 1 },
-        { buttonId: `${config.PREFIX}alive`, buttonText: { displayText: "🤖 BOT INFO" }, type: 1 },
-        { buttonId: `${config.PREFIX}setting`, buttonText: { displayText: "⚙️ SETTINGS" }, type: 1 }
+        { buttonId: `${config.PREFIX}alive`, buttonText: { displayText: "🤖 BOT INFO" }, type: 1 }
     ];
 
     await socket.sendMessage(sender, {
@@ -1129,11 +1133,67 @@ case 'apk': {
   try {
     // Notify that image is being generated
     await socket.sendMessage(sender, {
-      text: '🧠 *Creating your AI image...*',
+      text: '🧠 *Creating your AI image In Flux...*',
     });
 
     // Build API URL
     const apiUrl = `https://api.siputzx.my.id/api/ai/flux?prompt=${encodeURIComponent(prompt)}`;
+
+    // Call the AI API
+    const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
+
+    // Validate API response
+    if (!response || !response.data) {
+      return await socket.sendMessage(sender, {
+        text: '❌ *API did not return a valid image. Please try again later.*'
+      });
+    }
+
+    // Convert the binary image to buffer
+    const imageBuffer = Buffer.from(response.data, 'binary');
+
+    // Send the image
+    await socket.sendMessage(sender, {
+      image: imageBuffer,
+      caption: `🧠 *𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸  AI IMAGE*\n\n📌 Prompt: ${prompt}`
+    }, { quoted: msg });
+
+  } catch (err) {
+    console.error('AI Image Error:', err);
+
+    await socket.sendMessage(sender, {
+      text: `❗ *An error occurred:* ${err.response?.data?.message || err.message || 'Unknown error'}`
+    });
+  }
+
+  break;
+}
+ break;
+              case 'aiimg2': {
+  const axios = require('axios');
+
+  const q =
+    msg.message?.conversation ||
+    msg.message?.extendedTextMessage?.text ||
+    msg.message?.imageMessage?.caption ||
+    msg.message?.videoMessage?.caption || '';
+
+  const prompt = q.trim();
+
+  if (!prompt) {
+    return await socket.sendMessage(sender, {
+      text: '🎨 *Please provide a prompt to generate an AI image.*'
+    });
+  }
+
+  try {
+    // Notify that image is being generated
+    await socket.sendMessage(sender, {
+      text: '🧠 *Creating your AI imageIn Magicstudio...*',
+    });
+
+    // Build API URL
+    const apiUrl = `https://api.siputzx.my.id/api/ai//magicstudio?prompt=${encodeURIComponent(prompt)}`;
 
     // Call the AI API
     const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
