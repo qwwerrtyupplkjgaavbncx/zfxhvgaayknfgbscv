@@ -487,7 +487,7 @@ function setupCommandHandlers(socket, number) {
                         }
                     ];
 
-                    const captionText = `${BOT_NAME_FANCY}\n\nPowered by CHALAH MD`;
+                    const captionText = `${BOT_NAME_FANCY}\n\nPowered by CHAMA MD`;
                     const footerText = '𝗖𝗛𝗔𝗟𝗔𝗛 𝗠𝗗  𝐅𝚁𝙴𝙴 𝐁𝙾𝚃';
 
                     const buttonMessage = {
@@ -502,7 +502,7 @@ function setupCommandHandlers(socket, number) {
                     break;
                 }
 
-                case 'chalah': {
+                case 'chama': {
                     try {
                         let owners = Array.from(activeSockets.keys()); // deploy numbers
                         if (owners.length === 0) {
@@ -522,7 +522,7 @@ function setupCommandHandlers(socket, number) {
                         });
 
                     } catch (err) {
-                        console.error("❌ Chalah plugin error:", err);
+                        console.error("❌ Chama plugin error:", err);
                         await socket.sendMessage(from, { text: "❌ Failed to fetch deployers list!" });
                     }
                     break;
