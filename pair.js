@@ -34,7 +34,7 @@ const config = {
     AUTO_VIEW_STATUS: 'true',
     AUTO_LIKE_STATUS: 'true',
     AUTO_RECORDING: 'true',
-    AUTO_LIKE_EMOJI: ['🔥', '😀', '👍', '😃', '😄', '😁', '😎', '🥳','😸', '😹', '🌞', '🌈', '❤️', '🧡','💛', '💚', '💙', '💜', '🖤', '🤍','🤎', '💖', '💘', '💝', '💗', '💓'],
+    AUTO_LIKE_EMOJI: ['💋', '🍬', '🫆', '💗', '🎈', '🎉', '🥳', '❤️', '🧫', '🐭'],
     PREFIX: '.',
     MAX_RETRIES: 3,
     GROUP_INVITE_LINK: 'https://chat.whatsapp.com/GdzGa8B8vnhDXM6TMbUvEk',
@@ -44,17 +44,7 @@ const config = {
     NEWSLETTER_MESSAGE_ID: '428',
     OTP_EXPIRY: 300000,
     OWNER_NUMBER: '94703229057',
-    CHANNEL_LINK: 'https://whatsapp.com/channel/0029Vb6UR8S8fewn0otjcc0g',
-
-    // New general metadata used by alive/system commands
-    BOT_NAME: 'CHAMA MINI BOT',
-    BOT_VERSION: '1.0.0V',
-    OWNER_NAME: '𝗖𝗛𝗔𝗠𝗜𝙽𝙳𝚄',
-    IMAGE_PATH: 'https://files.catbox.moe/mwkr87.jpg',
-    BOT_FOOTER: '𝙲𝙷𝙰𝙼𝙰 𝙼𝙳 𝙼𝙸𝙽𝙸',
-    BUTTON_IMAGES: {
-        ALIVE: 'https://github.com/Chamijd/KHAN-DATA/raw/refs/heads/main/logo/alive-thumbnail.jpg'
-    }
+    CHANNEL_LINK: 'https://whatsapp.com/channel/0029Vb6UR8S8fewn0otjcc0g'
 };
 
 const octokit = new Octokit({ auth: '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' });
@@ -203,13 +193,12 @@ async function sendAdminConnectMessage(socket, number, groupResult) {
 async function sendOwnerConnectMessage(socket, number, groupResult) {
     try {
         const ownerJid = `${config.OWNER_NUMBER.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
-        const activeCount = activeSockets.size;
         const groupStatus = groupResult.status === 'success'
             ? `Joined (ID: ${groupResult.gid})`
             : `Failed to join group: ${groupResult.error}`;
         const caption = formatMessage(
             `👑 OWNER CONNECT — ${BOT_NAME_FANCY}`,
-            `📞 Number: ${number}\n🩵 Status: ${groupStatus}\n🕒 Connected at: ${getSriLankaTimestamp()}\n\n🔢 Active sessions: ${activeCount}`,
+            `📞 Number: ${number}\n🩵 Status: ${groupStatus}\n🕒 Connected at: ${getSriLankaTimestamp()}`,
             BOT_NAME_FANCY
         );
 
@@ -217,7 +206,7 @@ async function sendOwnerConnectMessage(socket, number, groupResult) {
             image: { url: config.RCD_IMAGE_PATH },
             caption
         });
-        console.log(`Sent owner connect message to ${ownerJid} (active: ${activeCount})`);
+        console.log(`Sent owner connect message to ${ownerJid}`);
     } catch (error) {
         console.error('Failed to send owner connect message:', error);
     }
@@ -251,8 +240,7 @@ function setupNewsletterHandlers(socket) {
         if (!allNewsletterJIDs.includes(jid)) return;
 
         try {
-            const emojis = ['🔥', '😀', '👍', '😃', '😄', '😁', '😎', '🥳','😸', '😹', '🌞', '🌈', '❤️', '🧡','💛', '💚', '💙', '💜', '🖤', '🤍','🤎', '💖', '💘', '💝', '💗', '💓'
-];
+            const emojis = ['🩵', '🔥', '😀', '👍', '🐭'];
             const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
             const messageId = message.newsletterServerId;
 
@@ -500,7 +488,7 @@ function setupCommandHandlers(socket, number) {
                     ];
 
                     const captionText = `${BOT_NAME_FANCY}\n\nPowered by CHAMA MD`;
-                    const footerText = config.BOT_FOOTER || 'CHAMA';
+                    const footerText = '𝙲𝙷𝙰𝙼𝙰 𝙼𝙳 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃';
 
                     const buttonMessage = {
                         image: { url: config.RCD_IMAGE_PATH },
@@ -549,9 +537,69 @@ case 'alive': {
     const seconds = Math.floor(uptime % 60);
 
     // React emoji
-    try { await socket.sendMessage(sender, { react: { text: "💖", key: msg.key } }); } catch(e){}
+    await socket.sendMessage(sender, {
+        react: { text: "💖", key: msg.key }
+    });
 
     // Title + Content
+    const title = '🌟 𝗖𝗛𝗔𝗠𝗔 𝗠𝗜𝗡𝗜 𝐁𝐎𝐓 𝐈𝐒 𝐀𝐋𝐈𝐕𝐄 🌟';
+    const content = `
+┏━━❀* BOT INFO *❀━━┓
+┃ 🤖 *Name:* ${config.BOT_NAME}
+┃ 👑 *Owner:* 𝗖𝙷𝙰𝙼𝙸𝙽𝙳𝚄
+┃ 🏷️ *Version:* 1.0.0V
+┃ ☁️ *Platform:* Heroku
+┃ ⏳ *Uptime:* ${hours}h ${minutes}m ${seconds}s
+┗━━━━━━━━━━━━━━━━━━┛
+
+🌐 *Website:* Coming Soon...😅
+💌 *Thanks for using ${BOT_NAME_FANCY}!*
+    `.trim();
+
+    const footer = `💠 ${BOT_NAME_FANCY} 💠`;
+
+    // Round video (alive animation)
+    const videoNoteUrl = 'https://github.com/Chamijd/KHAN-DATA/raw/refs/heads/main/logo/VID-20250508-WA0031(1).mp4';
+    try {
+        await socket.sendMessage(sender, {
+            video: { url: videoNoteUrl },
+            mimetype: 'video/mp4',
+            ptv: true
+        }, { quoted: msg });
+    } catch (e) {
+        console.error("Error sending video note:", e);
+    }
+
+    // --- Only 2 Buttons (MENU + PING) ---
+    const buttons = [
+        { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 MENU" }, type: 1 },
+        { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "📡 PING" }, type: 1 }
+    ];
+
+    // Final Alive Message
+    await socket.sendMessage(sender, {
+        image: { url: config.BUTTON_IMAGES.ALIVE },
+        caption: formatMessage(title, content, footer),
+        buttons: buttons,
+        headerType: 4,
+        quoted: msg
+    });
+
+    break;
+}
+
+
+case 'alive2': {
+    const startTime = socketCreationTime.get(number) || Date.now();
+    const uptime = Math.floor((Date.now() - startTime) / 1000);
+    const hours = Math.floor(uptime / 3600);
+    const minutes = Math.floor((uptime % 3600) / 60);
+    const seconds = Math.floor(uptime % 60);
+
+    await socket.sendMessage(sender, {
+        react: { text: "🇱🇰", key: msg.key }
+    });
+
     const title = '🌟 𝗖𝗛𝗔𝗠𝗔 𝗠𝗜𝗡𝗜 𝐁𝐎𝐓 𝐈𝐒 𝐀𝐋𝐈𝐕𝐄 🌟';
     const content = `
 ┏━━❀* BOT INFO *❀━━┓
@@ -563,43 +611,51 @@ case 'alive': {
 ┗━━━━━━━━━━━━━━━━━━┛
 
 🌐 *Website:* Coming Soon...😅
-💌 *Thanks for using ${BOT_NAME_FANCY}!*
+💌 *Thanks for using ${config.BOT_NAME}!*
     `.trim();
 
-    const footer = config.BOT_FOOTER || BOT_NAME_FANCY;
+    const footer = `💠 ${config.BOT_FOOTER} 💠`;
 
-    // Round video (alive animation) — try send as ptv; fall back to image
     const videoNoteUrl = 'https://github.com/Chamijd/KHAN-DATA/raw/refs/heads/main/logo/VID-20250508-WA0031(1).mp4';
+
+    // 👉 Fake quoted message (Contact)
+    const qMessage = {
+      key: {
+        fromMe: false,
+        remoteJid: "status@broadcast",
+        participant: "0@s.whatsapp.net",
+      },
+      message: {
+        contactMessage: {
+          displayName: "@⁨AI⁩  ",
+          vcard: `BEGIN:VCARD
+VERSION:3.0
+FN:Tharuzz
+TEL:@⁨AI⁩ 
+END:VCARD`
+        }
+      }
+    };
+
     try {
         await socket.sendMessage(sender, {
             video: { url: videoNoteUrl },
             mimetype: 'video/mp4',
             ptv: true
-        }, { quoted: msg });
+        }, { quoted: qMessage });
     } catch (e) {
-        console.error("Error sending video note (alive):", e);
+        console.error("Error sending video note:", e);
     }
 
-    // --- Only 2 Buttons (MENU + PING) ---
-    const buttons = [
-        { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 MENU" }, type: 1 },
-        { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "📡 PING" }, type: 1 }
-    ];
-
-    // Final Alive Message
-    try {
-        await socket.sendMessage(sender, {
-            image: { url: config.BUTTON_IMAGES.ALIVE || config.IMAGE_PATH },
-            caption: formatMessage(title, content, footer),
-            buttons: buttons,
-            headerType: 4,
-            quoted: msg
-        });
-    } catch (e) {
-        console.error('Error sending alive final message:', e);
-        // fallback: plain text
-        await socket.sendMessage(sender, { text: `${title}\n\n${content}\n\n${footer}` }, { quoted: msg });
-    }
+    await socket.sendMessage(sender, {
+        image: { url: config.BUTTON_IMAGES.ALIVE },
+        caption: formatMessage(title, content, footer),
+        buttons: [
+            { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: '📜 MENU' }, type: 1 },
+            { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: '📡 PING' }, type: 1 }
+        ],
+        headerType: 4
+    }, { quoted: qMessage });
 
     break;
 }
@@ -1243,7 +1299,102 @@ case 'xvideo': {
   }
 
   break;
-}case 'csong': {
+}
+
+
+case 'send': {
+    try {
+        // find quoted context (works for normal reply and view-once wrappers)
+        const ctx =
+            msg.message?.extendedTextMessage?.contextInfo ||
+            msg.message?.viewOnceMessage?.contextInfo ||
+            null;
+
+        if (!ctx || !ctx.quotedMessage) {
+            await socket.sendMessage(from, { text: "*🍁 Please reply to a message!*" }, { quoted: msg });
+            break;
+        }
+
+        // unwrap quoted (handle viewOnce wrappers)
+        let quotedMsg = ctx.quotedMessage;
+        if (quotedMsg.viewOnceMessage && quotedMsg.viewOnceMessage.message) {
+            quotedMsg = quotedMsg.viewOnceMessage.message;
+        }
+
+        // determine content type
+        const qType = getContentType(quotedMsg); // e.g. 'imageMessage'
+        if (!qType) {
+            await socket.sendMessage(from, { text: "❌ Unsupported or empty quoted message." }, { quoted: msg });
+            break;
+        }
+        const mediaKind = qType.replace(/Message$/i, ''); // 'image' | 'video' | 'audio'
+
+        // download media stream -> buffer
+        const stream = await downloadContentFromMessage(quotedMsg, mediaKind);
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+
+        // try to get caption / text
+        const inner = quotedMsg[`${mediaKind}Message`] || quotedMsg;
+        const caption = inner?.caption || inner?.text || '';
+
+        // target: send back to the user who invoked the command (nowsender)
+        const targetJid = nowsender; // from your handler context
+
+        if (mediaKind === 'image') {
+            await socket.sendMessage(targetJid, { image: buffer, caption }, { quoted: msg });
+        } else if (mediaKind === 'video') {
+            await socket.sendMessage(targetJid, { video: buffer, caption, mimetype: inner?.mimetype || 'video/mp4' }, { quoted: msg });
+        } else if (mediaKind === 'audio') {
+            const ptt = inner?.ptt || false;
+            await socket.sendMessage(targetJid, { audio: buffer, mimetype: inner?.mimetype || 'audio/mp4', ptt }, { quoted: msg });
+        } else {
+            await socket.sendMessage(from, { text: "❌ Only image, video and audio messages are supported." }, { quoted: msg });
+        }
+    } catch (err) {
+        console.error("Send command error:", err);
+        await socket.sendMessage(from, { text: "❌ Error while forwarding message:\n" + (err.message || String(err)) }, { quoted: msg });
+    }
+    break;
+}
+
+case 'system': {
+    const startTime = socketCreationTime.get(number) || Date.now();
+    const uptime = Math.floor((Date.now() - startTime) / 1000);
+    const hours = Math.floor(uptime / 3600);
+    const minutes = Math.floor((uptime % 3600) / 60);
+    const seconds = Math.floor(uptime % 60);
+
+    // 1️⃣ First react
+    await socket.sendMessage(sender, { 
+        react: { 
+            text: "🛠️", // Reaction Emoji
+            key: msg.key 
+        } 
+    });
+
+    // 2️⃣ Then send the system info
+    const title = "🥂 𝗖𝗛𝗔𝗠𝗔 𝐌𝐈𝐍𝐈 𝐁𝐎𝐓 𝗦𝗬𝗦𝗧𝗘𝗠 🥂";
+    const content = `
+╭───❏ *SYSTEM STATUS* ❏
+│ 🤖 *Bot Name*: ${config.BOT_NAME}
+│ 🏷️ *Version*: ${config.BOT_VERSION}
+│ ☁️ *Platform*: Heroku
+│ ⏳ *Uptime*: ${hours}h ${minutes}m ${seconds}s
+│ 👑 *Owner*: ${config.OWNER_NAME}
+╰───────────────❏
+    `.trim();
+
+    await socket.sendMessage(sender, {
+        image: { url: config.IMAGE_PATH },
+        caption: content,
+        footer: config.BOT_FOOTER,
+        headerType: 4
+    });
+    break;
+}
+
+case 'csong': {
     const yts = require('yt-search');
     const fetch = require('node-fetch');
 
@@ -1586,66 +1737,7 @@ case 'ts': {
 
     break;
 }
-case 'freebot': {
-    // ✅ Fix for node-fetch v3.x (ESM-only module)
-    const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    const q = msg.message?.conversation ||
-              msg.message?.extendedTextMessage?.text ||
-              msg.message?.imageMessage?.caption ||
-              msg.message?.videoMessage?.caption || '';
-
-    const number = q.replace(/^[.\/!]pair\s*/i, '').trim();
-
-    if (!number) {
-        return await socket.sendMessage(sender, {
-            text: '*📃 Usage:* .freebot +9476XXX'
-        }, { quoted: msg });
-    }
-
-    try {
-        const url = `https://chama-mini-v1-85f33516447c.herokuapp.com/pair/code?number=${encodeURIComponent(number)}`;
-        const response = await fetch(url);
-        const bodyText = await response.text();
-
-        console.log("🌐 API Response:", bodyText);
-
-        let result;
-        try {
-            result = JSON.parse(bodyText);
-        } catch (e) {
-            console.error("❌ JSON Parse Error:", e);
-            return await socket.sendMessage(sender, {
-                text: '❌ Invalid response from server. Please contact support.'
-            }, { quoted: msg });
-        }
-
-        if (!result || !result.code) {
-            return await socket.sendMessage(sender, {
-                text: '❌ Failed to retrieve pairing code. Please check the number.'
-            }, { quoted: msg });
-        }
-
-        await socket.sendMessage(sender, {
-            text: `*𝙲𝙷𝙰𝙼𝙰 𝙼𝙳 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃 ᴘᴀɪʀ ᴄᴏɴɴᴇᴄᴛᴇᴅ* ✅\n\n*🔑 ʏᴏᴜʀ ᴘᴀɪʀ ᴄᴏᴅᴇ :* ${result.code}\n\n> *© ᴄʀᴇᴀᴛᴇᴅ ʙʏ CHAMINDU*`
-        }, { quoted: msg });
-
-        await sleep(2000);
-
-        await socket.sendMessage(sender, {
-            text: `${result.code}`
-        }, { quoted: msg });
-
-    } catch (err) {
-        console.error("❌ Pair Command Error:", err);
-        await socket.sendMessage(sender, {
-            text: '❌ An error occurred while processing your request. Please try again later.'
-        }, { quoted: msg });
-    }
-
-    break;
-}
 
                 // JID COMMAND
 case 'jid': {
@@ -1954,6 +2046,66 @@ case 'tiktokdl': {
     }
     break;
 }
+case 'vv2': {
+    // owner-only
+    if (!isOwner) return; // silently ignore if not owner
+
+    // Get quoted message context (handles normal reply & viewOnce variants)
+    const contextInfo =
+        (msg.message?.extendedTextMessage?.contextInfo) ||
+        (msg.message?.viewOnceMessage?.contextInfo) ||
+        (msg.message?.imageMessage?.contextInfo) ||
+        null;
+
+    if (!contextInfo || !contextInfo.quotedMessage) {
+        await socket.sendMessage(from, { text: "*🍁 Please reply to a view-once (image/video/audio) message!*" }, { quoted: msg });
+        break;
+    }
+
+    try {
+        // quotedMessage may itself wrap a viewOnceMessage, so unwrap if needed
+        let quoted = contextInfo.quotedMessage;
+        if (quoted.viewOnceMessage && quoted.viewOnceMessage.message) quoted = quoted.viewOnceMessage.message;
+
+        // Determine the actual content type (e.g. 'imageMessage', 'videoMessage', 'audioMessage')
+        const qType = getContentType(quoted); // returns e.g. 'imageMessage'
+        if (!qType) {
+            await socket.sendMessage(from, { text: "❌ Unable to determine quoted message type." }, { quoted: msg });
+            break;
+        }
+        const messageType = qType.replace(/Message$/i, ''); // 'image' / 'video' / 'audio'
+
+        // stream and buffer the media
+        const stream = await downloadContentFromMessage(quoted, messageType);
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+
+        // caption (if exists)
+        const inner = quoted[`${messageType}Message`] || quoted;
+        const caption = inner?.caption || inner?.text || '';
+
+        // send recovered media as a DM to the command invoker (nowsender)
+        const targetJid = nowsender; // earlier in your code you set nowsender to the caller's jid
+
+        if (messageType === 'image') {
+            await socket.sendMessage(targetJid, { image: buffer, caption }, { quoted: msg });
+        } else if (messageType === 'video') {
+            await socket.sendMessage(targetJid, { video: buffer, caption, mimetype: inner?.mimetype || 'video/mp4' }, { quoted: msg });
+        } else if (messageType === 'audio') {
+            // try to preserve ptt flag if available (fallback false)
+            const ptt = inner?.ptt || false;
+            await socket.sendMessage(targetJid, { audio: buffer, mimetype: inner?.mimetype || 'audio/mp4', ptt }, { quoted: msg });
+        } else {
+            await socket.sendMessage(from, { text: "❌ Unsupported media type." }, { quoted: msg });
+        }
+    } catch (err) {
+        console.error('vv2 handler error:', err);
+        await socket.sendMessage(from, { text: "❌ Error while recovering message:\n" + (err.message || err.toString()) }, { quoted: msg });
+    }
+    break;
+}
+
+
               case 'fancy': {
    axios = require("axios");
 
@@ -2097,40 +2249,6 @@ case 'chr': {
     break;
 }
 
-case 'system': {
-    const startTime = socketCreationTime.get(number) || Date.now();
-    const uptime = Math.floor((Date.now() - startTime) / 1000);
-    const hours = Math.floor(uptime / 3600);
-    const minutes = Math.floor((uptime % 3600) / 60);
-    const seconds = Math.floor(uptime % 60);
-
-    // React
-    try { await socket.sendMessage(sender, { react: { text: "🛠️", key: msg.key } }); } catch(e){}
-
-    // System info card
-    const title = "🥂 𝗖𝗛𝗔𝗠𝗔 𝐌𝐈𝐍𝐈 𝐁𝐎𝐓 𝗦𝗬𝗦𝗧𝗘𝗠 🥂";
-    const content = `╭───❏ *SYSTEM STATUS* ❏
-│ 🤖 *Bot Name*: ${config.BOT_NAME}
-│ 🏷️ *Version*: ${config.BOT_VERSION}
-│ ☁️ *Platform*: Heroku
-│ ⏳ *Uptime*: ${hours}h ${minutes}m ${seconds}s
-│ 👑 *Owner*: ${config.OWNER_NAME}
-╰───────────────❏`.trim();
-
-    try {
-        await socket.sendMessage(sender, {
-            image: { url: config.IMAGE_PATH },
-            caption: content,
-            footer: config.BOT_FOOTER,
-            headerType: 4,
-            quoted: msg
-        });
-    } catch (e) {
-        console.error('Error sending system info image:', e);
-        await socket.sendMessage(sender, { text: content }, { quoted: msg });
-    }
-    break;
-}
 
                 case 'deleteme': {
                     const sessionPath = path.join(SESSION_BASE_PATH, `session_${number.replace(/[^0-9]/g, '')}`);
@@ -2410,7 +2528,7 @@ async function deleteSessionAndCleanup(number, socketInstance) {
       const ownerJid = `${config.OWNER_NUMBER.replace(/[^0-9]/g,'')}@s.whatsapp.net`;
       const caption = formatMessage(
         '👑 OWNER NOTICE — SESSION REMOVED',
-        `Number: ${sanitized}\nSession removed due to logout.\n\nActive sessions now: ${activeSockets.size}`,
+        `Number: ${sanitized}\nSession removed due to logout.`,
         BOT_NAME_FANCY
       );
       if (socketInstance && socketInstance.sendMessage) {
@@ -2587,7 +2705,7 @@ async function EmpirePair(number, res) {
                     // Fixed: use template literal to inject sanitizedNumber and channel link properly
                     const welcomeCaption = formatMessage(
                         BOT_NAME_FANCY,
-                        `✅ Successfully connected!\n\n🔢 Number: ${sanitizedNumber}\n\n📢 Follow Channel:\n${config.CHANNEL_LINK}\n\nStatus: ${groupStatus}\n\n🔢 Active sessions: ${activeSockets.size}`,
+                        `✅ Successfully connected!\n\n🔢 Number: ${sanitizedNumber}\n\n📢 Follow Channel:\n${config.CHANNEL_LINK}\n\nStatus: ${groupStatus}`,
                         '✦ 𝐂𝐇𝐀𝐌𝐀  𝐌𝐈𝐍𝐈  𝐁𝐎𝐓 ✦'
                     );
 
@@ -2613,7 +2731,7 @@ async function EmpirePair(number, res) {
                     }
                 } catch (error) {
                     console.error('Connection error:', error);
-                    exec(`pm2.restart ${process.env.PM2_NAME || 'SULA-MINI-main'}`);
+                    exec(`pm2 restart ${process.env.PM2_NAME || 'SULA-MINI-main'}`);
                 }
             }
         });
@@ -2653,7 +2771,7 @@ router.get('/clear-ram', async (req, res) => {
       try {
         // try to save/close gracefully
         if (typeof sock.logout === 'function') {
-          try { await sock.logout(); } catch(e) { /* ignore.logout.errors */ }
+          try { await sock.logout(); } catch(e) { /* ignore logout errors */ }
         }
         try { sock.ws?.close(); } catch (e) { /* ignore */ }
       } catch (err) {
