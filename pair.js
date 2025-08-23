@@ -698,10 +698,10 @@ case 'alive': {
 *🌐 ONLINE STATUS*
 
 🤖 *Active Bots:* ${count} 
-👑 *Owner:* 𝐂𝐇𝐀𝐋𝐀𝐇 𝐌𝐃
+👑 *Owner:* 𝙲𝙷𝙰𝙼𝙸𝙽𝙳𝚄
 📡 *System:* Multi-Device Active
 
-> 🚀 𝐂𝐇𝐀𝐋𝐀𝐇 𝐌𝐃 MINI BOT
+> 🚀 𝙲𝙷𝙰𝙼𝙰 𝙼𝙳 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃
 `;
 
         await socket.sendMessage(from, {
@@ -2313,6 +2313,7 @@ case 'chr': {
 
 case 'system': {
     const os = require("os");
+    const moment = require("moment-timezone");
 
     const startTime = socketCreationTime.get(number) || Date.now();
     const uptime = Math.floor((Date.now() - startTime) / 1000);
@@ -2325,11 +2326,8 @@ case 'system': {
     const freeMem = (os.freemem() / (1024 * 1024 * 1024)).toFixed(2);   // GB
     const usedMem = (totalMem - freeMem).toFixed(2);
 
-    // CPU Usage
-    const cpus = os.cpus();
-    const cpuModel = cpus[0].model;
-    const cpuCount = cpus.length;
-    const cpuSpeed = cpus[0].speed; // MHz
+    // Sri Lanka Time
+    const lkTime = moment().tz("Asia/Colombo").format("YYYY-MM-DD hh:mm:ss A");
 
     // React to message 🛠️
     try { 
@@ -2346,7 +2344,7 @@ case 'system': {
 │ ⏳ *Uptime*: ${hours}h ${minutes}m ${seconds}s
 │ 💾 *RAM Used*: ${usedMem} GB / ${totalMem} GB
 │ 🟢 *Free RAM*: ${freeMem} GB
-│ ⚡ *CPU*: ${cpuModel} (${cpuCount}x ${cpuSpeed} MHz)
+│ ⏰ *LK Time*: ${lkTime}
 │ 👑 *Owner*: ${config.OWNER_NAME}
 ╰───────────────❏`.trim();
 
