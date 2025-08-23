@@ -1883,53 +1883,49 @@ case 'jid': {
 }
 case 'cid': {
     try {
-        // link capture (args[0] or reply message)
-        const channelLink = args[0] || msg.quoted?.text;
-        if (!channelLink) {
+        if (!args[0]) {
             await socket.sendMessage(sender, {
                 text: "❌ Please provide a channel link!\n\nUsage: `.cid https://whatsapp.com/channel/xxxxxx`"
             }, { quoted: msg });
             break;
         }
 
-        // extract channel id
+        const channelLink = args[0];
+        // extract channel id from the link
         const match = channelLink.match(/whatsapp\.com\/channel\/([0-9A-Za-z]+)/);
+
         if (!match) {
-            await socket.sendMessage(sender, { text: "❌ Invalid channel link!" }, { quoted: msg });
+            await socket.sendMessage(sender, {
+                text: "❌ Invalid channel link!"
+            }, { quoted: msg });
             break;
         }
 
         const channelId = match[1];
         const channelJid = channelId + "@newsletter";
 
-        // dummy placeholders for extra info
-        // real implementation requires fetching via WhatsApp API / client
-        const channelName = "My Channel"; // fetch real name if possible
-        const subscribers = "1234"; // fetch subscriber count if possible
-        const description = "This is a sample channel description."; // fetch real description if possible
-
         // react
         await socket.sendMessage(sender, {
-            react: { text: "🆔", key: msg.key }
+            react: {
+                text: "🆔",
+                key: msg.key
+            }
         });
 
-        // send info
         await socket.sendMessage(sender, {
             text: `
 *🆔 Channel JID:* ${channelJid}
 *🔗 Link:* ${channelLink}
-*📛 Name:* ${channelName}
-*👥 Follows:* ${subscribers}
-*📝 Description:* ${description}
             `.trim()
         }, { quoted: msg });
 
     } catch (e) {
         console.error(e);
-        await socket.sendMessage(sender, { text: "⚠️ Error while fetching channel info" }, { quoted: msg });
+        await socket.sendMessage(sender, { text: "⚠️ Error while fetching channel JID" }, { quoted: msg });
     }
     break;
 }
+
 
 
                 // BOOM COMMAND        
