@@ -1,14 +1,14 @@
 {
-  "name": "HASHAN-md",
+  "name": "chama-md",
   "version": "1.0.0",
-  "description": "HASHAN-MD WhatsApp Bot with Multi-Number Support",
+  "description": "chama-md WhatsApp Bot with Multi-Number Support",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "baileys": "github:nstar-y/bail",
+    "baileys": "npm:baileys-mod",
     "express": "^4.18.2",
     "fs-extra": "^11.2.0",
     "pino": "^8.17.0",
@@ -37,6 +37,6 @@
     "baileys",
     "sula-md"
   ],
-  "author": "Your Name",
+  "author": "chama",
   "license": "MIT"
 }
