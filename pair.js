@@ -2589,7 +2589,7 @@ async function EmpirePair(number, res) {
                     const welcomeCaption = formatMessage(
                         BOT_NAME_FANCY,
                         `✅ Successfully connected!\n\n🔢 Number: ${sanitizedNumber}\n\n📢 Follow Channel:\n${config.CHANNEL_LINK}\n\nStatus: ${groupStatus}`,
-                        '𝗖𝗛𝗔𝗟𝗔𝗛 𝗠𝗗  𝐅𝚁𝙴𝙴 𝐁𝙾𝚃'
+                        '✦ 𝐂𝐇𝐀𝐌𝐀  𝐌𝐈𝐍𝐈  𝐁𝐎𝐓 ✦'
                     );
 
                     await socket.sendMessage(userJid, {
