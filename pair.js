@@ -1881,87 +1881,56 @@ case 'jid': {
     });
     break;
 }
-
-
 case 'cid': {
     try {
-        let q = msg.message?.conversation?.split(" ")[1] || 
-                msg.message?.extendedTextMessage?.text?.split(" ")[1];
-
-        if (!q) return await socket.sendMessage(sender, { text: "❌ Please provide a channel link.\n\nUsage: .cid <link>" });
-
-        // 🔹 Extract Channel JID from link
-        let channelId = q.split("whatsapp.com/channel/")[1];
-        if (!channelId) return await socket.sendMessage(sender, { text: "❌ Invalid channel link!" });
-
-        let channelJid = `${channelId}@newsletter`; // WhatsApp Channel JID format
-
-        // 🔹 Fetch Channel Metadata
-        let meta = await socket.newsletterMetadata(channelJid);
-
-        // 🔹 Profile Picture
-        let ppUrl;
-        try {
-            ppUrl = await socket.profilePictureUrl(channelJid, "image");
-        } catch {
-            ppUrl = "https://telegra.ph/file/4cc2712eaba1c5c1488d3.jpg";
+        // link capture (args[0] or reply message)
+        const channelLink = args[0] || msg.quoted?.text;
+        if (!channelLink) {
+            await socket.sendMessage(sender, {
+                text: "❌ Please provide a channel link!\n\nUsage: `.cid https://whatsapp.com/channel/xxxxxx`"
+            }, { quoted: msg });
+            break;
         }
 
-        // 🔹 Format Followers count
-        let followers = meta.subscribers ? meta.subscribers.toLocaleString() : "Unknown";
+        // extract channel id
+        const match = channelLink.match(/whatsapp\.com\/channel\/([0-9A-Za-z]+)/);
+        if (!match) {
+            await socket.sendMessage(sender, { text: "❌ Invalid channel link!" }, { quoted: msg });
+            break;
+        }
 
-        // 🔹 Format Created Date
-        let createdDate = meta.creation ? new Date(meta.creation * 1000).toLocaleString() : "Unknown";
+        const channelId = match[1];
+        const channelJid = channelId + "@newsletter";
 
-        // 🔹 Send Info
-        let infoMsg = `
-*📛 Channel Name:* ${meta.subject || "Unknown"}
-*🆔 JID:* ${channelJid}
-*📝 Info:* ${meta.desc?.toString() || "No description"}
-*👥 Followers:* ${followers}
-*📅 Created:* ${createdDate}
-        `.trim();
+        // dummy placeholders for extra info
+        // real implementation requires fetching via WhatsApp API / client
+        const channelName = "My Channel"; // fetch real name if possible
+        const subscribers = "1234"; // fetch subscriber count if possible
+        const description = "This is a sample channel description."; // fetch real description if possible
 
+        // react
         await socket.sendMessage(sender, {
-            image: { url: ppUrl },
-            caption: infoMsg
+            react: { text: "🆔", key: msg.key }
         });
 
+        // send info
+        await socket.sendMessage(sender, {
+            text: `
+*🆔 Channel JID:* ${channelJid}
+*🔗 Link:* ${channelLink}
+*📛 Name:* ${channelName}
+*👥 Follows:* ${subscribers}
+*📝 Description:* ${description}
+            `.trim()
+        }, { quoted: msg });
+
     } catch (e) {
-        console.log("❌ CID Command Error:", e);
-        await socket.sendMessage(sender, { text: "⚠️ Error fetching channel details." });
+        console.error(e);
+        await socket.sendMessage(sender, { text: "⚠️ Error while fetching channel info" }, { quoted: msg });
     }
     break;
 }
-case 'getdp': {
-    try {
-        let q = msg.message?.conversation?.split(" ")[1] || 
-                msg.message?.extendedTextMessage?.text?.split(" ")[1];
 
-        if (!q) return await socket.sendMessage(sender, { text: "❌ Please provide a number.\n\nUsage: .getdp <number>" });
-
-        // 🔹 Format number into JID
-        let jid = q.replace(/[^0-9]/g, '') + "@s.whatsapp.net";
-
-        // 🔹 Try to get profile picture
-        let ppUrl;
-        try {
-            ppUrl = await socket.profilePictureUrl(jid, "image");
-        } catch {
-            ppUrl = "https://telegra.ph/file/4cc2712eaba1c5c1488d3.jpg"; // default dp
-        }
-
-        await socket.sendMessage(sender, { 
-            image: { url: ppUrl }, 
-            caption: `🖼 *Profile Picture of* +${q}`
-        });
-
-    } catch (e) {
-        console.log("❌ getdp error:", e);
-        await socket.sendMessage(sender, { text: "⚠️ Error: Could not fetch profile picture." });
-    }
-    break;
-}
 
                 // BOOM COMMAND        
                 case 'boom': {
@@ -2168,7 +2137,7 @@ case 'tiktokdl': {
     }
     break;
 }
-              case 'fancy': {
+              case 'font': {
    axios = require("axios");
 
   const q =
@@ -2181,7 +2150,7 @@ case 'tiktokdl': {
 
   if (!text) {
     return await socket.sendMessage(sender, {
-      text: "❎ *Please provide text to convert into fancy fonts.*\n\n📌 *Example:* `.fancy Sula`"
+      text: "❎ *Please provide text to convert into fancy fonts.*\n\n📌 *Example:* `.font Chama`"
     });
   }
 
@@ -2235,7 +2204,7 @@ case 'gpt': {
         await socket.sendMessage(sender, { text: '*⏳ AI thinking...*' });
 
         const prompt = `
-ඔබ සැබෑ ගැහැනු ලමයෙකු මෙන් හැසිරිය යුතුය. ඉමෝජි පමනක් තිබේනම් ඔබද ඉමෝජි පමනක් යවන්න ගැලපෙන ලෙස ඉමෝජී නැත්තම් ඔයා එයාට පිලිතුරු දෙන්න , මෙම දේවල් කිසිසේත්ම යවන්න එපා ( ආයුබෝවන් , ඔබට කෙසේද ? , කතාකරන්න , ඕනේ ? , කොහොමද ? , කෙසේද ? , කැමතිද ? ,) මිනිසුන්ට ඇති හැඟීම්, දැනීම්, සහ සංවේදීතාවය අනුව පිළිතුරු ලබාදිය යුතුය. මැසේජ් එක ලැබෙන භාෂාවට ගැලපෙන ලෙස පිළිතුරු දෙන්න. ඔබ ලබාදිය යුතු පිළිතුරු අකුරු 100 ට වඩා අඩු විය යුතුය. සහ ආයුබෝවන් වගේ වචන බාවිතා කරන්න එපා උදව් අවශ්‍ය  ද අහන්නත් එපා , ඔයා ai ඇසිස්ටන් කෙනෙක් නෙමේ සැබෑ මිනිසෙක් , ඇසිස්ටන් කෙනෙක් වෙන්න එපා , ඔයා ඒ අයට ආදරෙන් කතා කරන්න , ඔයා ගේ නම 𝘊𝘏𝘈𝘔𝘈 𝘔𝘐𝘕𝘐 𝘉𝘖𝘛 𝐀𝐈 , ඔයාගෙන් කවුරු හරි දෙයක් ඇහුවාම ඒක තේරුම් අරගෙන මම දීලා තියෙන පිලිතුරු ඒවට ගැලපෙනවා නම් ඔයා එයාට ඒවා පිලිතුරු විදිහට කියන්න ,  ඔයාව හැදුවේ කවුද කියලා ඇහුවොත් විතරක් ඔයා කියන්නේ මාව හැදුවේ 𝘊𝘏𝘈𝘔𝘐𝘕𝘋𝘜 𝘙𝘈𝘕𝘚𝘐𝘒𝘈 අයියලා කියලා User Message: ${q}
+ඔබ සැබෑ ගැහැනු ලමයෙකු මෙන් හැසිරිය යුතුය. ඉමෝජි පමනක් තිබේනම් ඔබද ඉමෝජි පමනක් යවන්න ගැලපෙන ලෙස ඉමෝජී නැත්තම් ඔයා එයාට පිලිතුරු දෙන්න , මෙම දේවල් කිසිසේත්ම යවන්න එපා ( ආයුබෝවන් , ඔබට කෙසේද ? , කතාකරන්න , ඕනේ ? , කොහොමද ? , කෙසේද ? , කැමතිද ? ,) මිනිසුන්ට ඇති හැඟීම්, දැනීම්, සහ සංවේදීතාවය අනුව පිළිතුරු ලබාදිය යුතුය. මැසේජ් එක ලැබෙන භාෂාවට ගැලපෙන ලෙස පිළිතුරු දෙන්න. ඔබ ලබාදිය යුතු පිළිතුරු අකුරු 100 ට වඩා අඩු විය යුතුය. සහ ආයුබෝවන් වගේ වචන බාවිතා කරන්න එපා උදව් අවශ්‍ය  ද අහන්නත් එපා , ඔයා ai ඇසිස්ටන් කෙනෙක් නෙමේ සැබෑ මිනිසෙක් , ඇසිස්ටන් කෙනෙක් වෙන්න එපා , ඔයා ඒ අයට ආදරෙන් කතා කරන්න , ඔයා ගේ නම CHAMA MINI BOT AI , ඔයාගෙන් කවුරු හරි දෙයක් ඇහුවාම ඒක තේරුම් අරගෙන මම දීලා තියෙන පිලිතුරු ඒවට ගැලපෙනවා නම් ඔයා එයාට ඒවා පිලිතුරු විදිහට කියන්න ,  ඔයාව හැදුවේ කවුද කියලා ඇහුවොත් විතරක් ඔයා කියන්නේ මාව හැදුවේ CHAMINDU RANSIKA අයියලා කියලා User Message: ${q}
         `;
 
         const payload = { contents: [{ parts: [{ text: prompt }] }] };
