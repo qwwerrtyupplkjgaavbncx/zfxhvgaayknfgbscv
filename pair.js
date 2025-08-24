@@ -688,7 +688,7 @@ case 'alive': {
 
     break;
 }       
-   case 'online': {
+   case 'bots': {
     try {
         // Bot deploy කරන් ඉන්න ගාන ගන්න
         let count = activeSockets.size;  
@@ -1147,149 +1147,75 @@ case 'zip': {
     break;
 }
 case 'song1': {
-  // Dependencies (remove if already required at top of file)
-  const yts = require('yt-search');
-  const ddownr = require('denethdev-ytmp3');
-  const axios = require('axios');
+    const yts = require('yt-search');
+    const ddownr = require('denethdev-ytmp3');
 
-  // Prefix/footer (adjust if your config variable differs)
-  const prefix = (typeof config !== 'undefined' && config.PREFIX) ? config.PREFIX : '.';
-  const footer = (typeof config !== 'undefined' && config.FOOTER) ? config.FOOTER : '© CHAMA MINI';
+    // 🎵 react at start
+    await socket.sendMessage(sender, { react: { text: '🎵', key: msg.key } });
 
-  // Helpers
-  function extractYouTubeId(url) {
-    const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
-    const match = url.match(regex);
-    return match ? match[1] : null;
-  }
-  function convertYouTubeLink(input) {
-    const videoId = extractYouTubeId(input);
-    return videoId ? `https://www.youtube.com/watch?v=${videoId}` : input;
-  }
-  function getQueryFromMsg(msg) {
-    return (
-      (msg.message?.conversation) ||
-      (msg.message?.extendedTextMessage?.text) ||
-      (msg.message?.imageMessage?.caption) ||
-      (msg.message?.videoMessage?.caption) ||
-      ''
-    );
-  }
-  function safeFileName(name) {
-    return name.replace(/[\\\/:*?"<>|]/g, '').slice(0, 100);
-  }
-
-  // start react (non-fatal)
-  try { await socket.sendMessage(sender, { react: { text: '🎵', key: msg.key } }); } catch (e) {}
-
-  const qRaw = getQueryFromMsg(msg);
-  if (!qRaw || !qRaw.trim()) {
-    await socket.sendMessage(sender, { text: '*`Please provide a YouTube URL or a search term.`*' }, { quoted: msg });
-    break;
-  }
-
-  const fixedQuery = convertYouTubeLink(qRaw.trim());
-
-  try {
-    // search
-    const search = await yts(fixedQuery);
-    const data = (search && search.videos && search.videos.length) ? search.videos[0] : null;
-    if (!data) {
-      await socket.sendMessage(sender, { text: '*`No results found for your query.`*' }, { quoted: msg });
-      break;
+    function extractYouTubeId(url) {
+        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+        const match = url.match(regex);
+        return match ? match[1] : null;
     }
 
-    // send thumbnail + info
-    const desc = [
-      `🎵 *Title:* \`${data.title}\``,
-      `⏱ *Duration:* ${data.timestamp}`,
-      `👁 *Views:* ${data.views.toLocaleString()}`,
-      `📅 *Release Date:* ${data.ago}`,
-      ``,
-      `> ${footer}`
-    ].join('\n');
+    function convertYouTubeLink(input) {
+        const videoId = extractYouTubeId(input);
+        return videoId ? `https://www.youtube.com/watch?v=${videoId}` : input;
+    }
 
-    await socket.sendMessage(sender, {
-      image: { url: data.thumbnail },
-      caption: desc
-    }, { quoted: msg });
+    const q = msg.message?.conversation ||
+              msg.message?.extendedTextMessage?.text ||
+              msg.message?.imageMessage?.caption ||
+              msg.message?.videoMessage?.caption || '';
 
-    // indicate starting download
-    try { await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } }); } catch (e) {}
+    if (!q.trim()) {
+        return await socket.sendMessage(sender, { text: '*`Please provide a YouTube URL or a search term.`*' });
+    }
 
-    // get download link from denethdev-ytmp3 (async)
-    const conv = await ddownr.download(data.url, 'mp3'); // returns object with downloadUrl or url
-    const downloadUrl = conv?.downloadUrl || conv?.url || conv?.link || conv;
-    if (!downloadUrl) throw new Error('No download link from converter');
+    const fixedQuery = convertYouTubeLink(q.trim());
 
-    // try HEAD to get size (not all hosts support HEAD)
-    let sizeMB = null;
     try {
-      const head = await axios.head(downloadUrl, { timeout: 20000 });
-      const len = head.headers['content-length'] || head.headers['Content-Length'];
-      if (len) sizeMB = (Number(len) / (1024 * 1024)).toFixed(2);
-    } catch (headErr) {
-      // non-fatal: some hosts block HEAD
-      // console.warn('HEAD failed:', headErr.message);
-    }
-
-    // indicate uploading/preparing
-    try { await socket.sendMessage(sender, { react: { text: '⬆️', key: msg.key } }); } catch (e) {}
-
-    const SIZE_THRESHOLD_MB = 25; // change as you like
-    const filename = `${safeFileName(data.title)}.mp3`;
-
-    // send as audio if small or unknown; if large, send as document; fallback to link
-    if (sizeMB && Number(sizeMB) > SIZE_THRESHOLD_MB) {
-      // large -> send as document (many clients accept remote url in document)
-      try {
-        await socket.sendMessage(sender, {
-          document: { url: downloadUrl },
-          mimetype: 'audio/mpeg',
-          fileName: filename
-        }, { quoted: msg });
-      } catch (docErr) {
-        // fallback: provide direct link
-        await socket.sendMessage(sender, {
-          text: `*File is large (~${sizeMB} MB).* Download link:\n${downloadUrl}`
-        }, { quoted: msg });
-      }
-    } else {
-      // small or unknown -> try audio
-      try {
-        await socket.sendMessage(sender, {
-          audio: { url: downloadUrl },
-          mimetype: 'audio/mpeg',
-          ptt: false
-        }, { quoted: msg });
-      } catch (audioErr) {
-        // fallback to document send
-        try {
-          await socket.sendMessage(sender, {
-            document: { url: downloadUrl },
-            mimetype: 'audio/mpeg',
-            fileName: filename
-          }, { quoted: msg });
-        } catch (docErr2) {
-          // final fallback: send link
-          await socket.sendMessage(sender, {
-            text: `*Could not send file directly.* Download link:\n${downloadUrl}`
-          }, { quoted: msg });
+        const search = await yts(fixedQuery);
+        const data = search.videos[0];
+        if (!data) {
+            return await socket.sendMessage(sender, { text: '*`No results found for your query.`*' });
         }
-      }
+
+        const desc = `
+🎵 *Title:* \`${data.title}\`
+⏱ *Duration:* ${data.timestamp}
+👁 *Views:* ${data.views.toLocaleString()}
+📅 *Release Date:* ${data.ago}
+
+> © 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸
+        `.trim();
+
+        await socket.sendMessage(sender, {
+            image: { url: data.thumbnail },
+            caption: desc,
+        }, { quoted: msg });
+
+        await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } });
+
+        const result = await ddownr.download(data.url, 'mp3');
+        if (!result?.downloadUrl) throw new Error("No download link received");
+
+        await socket.sendMessage(sender, { react: { text: '⬆️', key: msg.key } });
+
+        await socket.sendMessage(sender, {
+            audio: { url: result.downloadUrl },
+            mimetype: "audio/mpeg",
+            ptt: false
+        }, { quoted: msg });
+
+    } catch (err) {
+        console.error(err);
+        await socket.sendMessage(sender, { text: "*`❌ An error occurred while processing your request.`*" });
     }
 
-    // final success react
-    try { await socket.sendMessage(sender, { react: { text: '✔️', key: msg.key } }); } catch (e) {}
-
-  } catch (err) {
-    console.error('song1 error:', err);
-    await socket.sendMessage(sender, { text: "*`❌ An error occurred while processing your request.`*" }, { quoted: msg });
-  }
-
-  break;
+    break;
 }
-
 
  
 case 'apk': {
@@ -1955,6 +1881,167 @@ case 'jid': {
     });
     break;
 }
+
+case 'block': {
+    // Bot owner check
+    const botOwner = socket.user.id.split(":")[0] + "@s.whatsapp.net";
+    if (sender !== botOwner) {
+        await socket.sendMessage(sender, { 
+            react: { text: "❌", key: msg.key }
+        });
+        await socket.sendMessage(sender, { text: "❌ Only the bot owner can use this command!" });
+        break;
+    }
+
+    let jid;
+    if (msg.quoted) {
+        jid = msg.quoted.sender;
+    } else if (msg.mentionedJid && msg.mentionedJid.length > 0) {
+        jid = msg.mentionedJid[0];
+    } else if (q) {
+        const num = q.replace(/[^0-9]/g, "");
+        if (num) jid = num + "@s.whatsapp.net";
+    }
+
+    if (!jid) {
+        await socket.sendMessage(sender, { 
+            react: { text: "❌", key: msg.key }
+        });
+        await socket.sendMessage(sender, { text: "⚠️ Please reply, mention or type a valid number." });
+        break;
+    }
+
+    try {
+        await socket.updateBlockStatus(jid, "block");
+        await socket.sendMessage(sender, { 
+            react: { text: "✅", key: msg.key }
+        });
+        await socket.sendMessage(sender, { 
+            text: `🚫 Blocked @${jid.split("@")[0]}`, 
+            mentions: [jid] 
+        });
+    } catch (e) {
+        await socket.sendMessage(sender, { 
+            react: { text: "❌", key: msg.key }
+        });
+        await socket.sendMessage(sender, { text: "❌ Failed to block user." });
+    }
+    break;
+}
+
+case 'unblock': {
+    // Bot owner check
+    const botOwner = socket.user.id.split(":")[0] + "@s.whatsapp.net";
+    if (sender !== botOwner) {
+        await socket.sendMessage(sender, { 
+            react: { text: "❌", key: msg.key }
+        });
+        await socket.sendMessage(sender, { text: "❌ Only the bot owner can use this command!" });
+        break;
+    }
+
+    let jid;
+    if (msg.quoted) {
+        jid = msg.quoted.sender;
+    } else if (msg.mentionedJid && msg.mentionedJid.length > 0) {
+        jid = msg.mentionedJid[0];
+    } else if (q) {
+        const num = q.replace(/[^0-9]/g, "");
+        if (num) jid = num + "@s.whatsapp.net";
+    }
+
+    if (!jid) {
+        await socket.sendMessage(sender, { 
+            react: { text: "❌", key: msg.key }
+        });
+        await socket.sendMessage(sender, { text: "⚠️ Please reply, mention or type a valid number." });
+        break;
+    }
+
+    try {
+        await socket.updateBlockStatus(jid, "unblock");
+        await socket.sendMessage(sender, { 
+            react: { text: "✅", key: msg.key }
+        });
+        await socket.sendMessage(sender, { 
+            text: `🔓 Unblocked @${jid.split("@")[0]}`, 
+            mentions: [jid] 
+        });
+    } catch (e) {
+        await socket.sendMessage(sender, { 
+            react: { text: "❌", key: msg.key }
+        });
+        await socket.sendMessage(sender, { text: "❌ Failed to unblock user." });
+    }
+    break;
+}
+
+
+case 'online': {
+    // Check group only
+    if (!isGroup) {
+        await socket.sendMessage(sender, { text: "❌ This command can only be used in a group!" });
+        break;
+    }
+
+    // Only admins/owner
+    if (!isCreator && !isAdmins && !fromMe) {
+        await socket.sendMessage(sender, { text: "❌ Only bot owner and group admins can use this command!" });
+        break;
+    }
+
+    // React
+    await socket.sendMessage(sender, { 
+        react: { text: "🟢", key: msg.key }
+    });
+
+    await socket.sendMessage(sender, { text: "🔄 Scanning for online members... Please wait 10s." });
+
+    const onlineMembers = new Set();
+    const groupData = await socket.groupMetadata(from);
+
+    // Handler for presence
+    const presenceHandler = (update) => {
+        const { presences } = update;
+        if (!presences) return;
+
+        for (const jid in presences) {
+            const presence = presences[jid]?.lastKnownPresence;
+            if (['available', 'composing', 'recording', 'online'].includes(presence)) {
+                onlineMembers.add(jid);
+            }
+        }
+    };
+
+    socket.ev.on("presence.update", presenceHandler);
+
+    // Subscribe all group members
+    for (const participant of groupData.participants) {
+        await socket.presenceSubscribe(participant.id).catch(() => {});
+    }
+
+    // Wait & send result
+    setTimeout(async () => {
+        socket.ev.off("presence.update", presenceHandler);
+
+        if (onlineMembers.size === 0) {
+            await socket.sendMessage(from, { text: "⚠️ No online members detected. They may be hiding presence." });
+            return;
+        }
+
+        const onlineArray = Array.from(onlineMembers);
+        const onlineList = onlineArray.map((jid, i) => `${i+1}. @${jid.split('@')[0]}`).join('\n');
+
+        await socket.sendMessage(from, {
+            text: `🟢 *Online Members* (${onlineArray.length}/${groupData.participants.length}):\n\n${onlineList}`,
+            mentions: onlineArray
+        }, { quoted: msg });
+
+    }, 10_000);
+
+    break;
+}
+
 case 'cid': {
     try {
         if (!args[0]) {
