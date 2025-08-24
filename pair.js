@@ -1147,75 +1147,149 @@ case 'zip': {
     break;
 }
 case 'song1': {
-    const yts = require('yt-search');
-    const ddownr = require('denethdev-ytmp3');
+  // Dependencies (remove if already required at top of file)
+  const yts = require('yt-search');
+  const ddownr = require('denethdev-ytmp3');
+  const axios = require('axios');
 
-    // 🎵 react at start
-    await socket.sendMessage(sender, { react: { text: '🎵', key: msg.key } });
+  // Prefix/footer (adjust if your config variable differs)
+  const prefix = (typeof config !== 'undefined' && config.PREFIX) ? config.PREFIX : '.';
+  const footer = (typeof config !== 'undefined' && config.FOOTER) ? config.FOOTER : '© CHAMA MINI';
 
-    function extractYouTubeId(url) {
-        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
-        const match = url.match(regex);
-        return match ? match[1] : null;
-    }
+  // Helpers
+  function extractYouTubeId(url) {
+    const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+    const match = url.match(regex);
+    return match ? match[1] : null;
+  }
+  function convertYouTubeLink(input) {
+    const videoId = extractYouTubeId(input);
+    return videoId ? `https://www.youtube.com/watch?v=${videoId}` : input;
+  }
+  function getQueryFromMsg(msg) {
+    return (
+      (msg.message?.conversation) ||
+      (msg.message?.extendedTextMessage?.text) ||
+      (msg.message?.imageMessage?.caption) ||
+      (msg.message?.videoMessage?.caption) ||
+      ''
+    );
+  }
+  function safeFileName(name) {
+    return name.replace(/[\\\/:*?"<>|]/g, '').slice(0, 100);
+  }
 
-    function convertYouTubeLink(input) {
-        const videoId = extractYouTubeId(input);
-        return videoId ? `https://www.youtube.com/watch?v=${videoId}` : input;
-    }
+  // start react (non-fatal)
+  try { await socket.sendMessage(sender, { react: { text: '🎵', key: msg.key } }); } catch (e) {}
 
-    const q = msg.message?.conversation ||
-              msg.message?.extendedTextMessage?.text ||
-              msg.message?.imageMessage?.caption ||
-              msg.message?.videoMessage?.caption || '';
-
-    if (!q.trim()) {
-        return await socket.sendMessage(sender, { text: '*`Please provide a YouTube URL or a search term.`*' });
-    }
-
-    const fixedQuery = convertYouTubeLink(q.trim());
-
-    try {
-        const search = await yts(fixedQuery);
-        const data = search.videos[0];
-        if (!data) {
-            return await socket.sendMessage(sender, { text: '*`No results found for your query.`*' });
-        }
-
-        const desc = `
-🎵 *Title:* \`${data.title}\`
-⏱ *Duration:* ${data.timestamp}
-👁 *Views:* ${data.views.toLocaleString()}
-📅 *Release Date:* ${data.ago}
-
-> © 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸
-        `.trim();
-
-        await socket.sendMessage(sender, {
-            image: { url: data.thumbnail },
-            caption: desc,
-        }, { quoted: msg });
-
-        await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } });
-
-        const result = await ddownr.download(data.url, 'mp3');
-        if (!result?.downloadUrl) throw new Error("No download link received");
-
-        await socket.sendMessage(sender, { react: { text: '⬆️', key: msg.key } });
-
-        await socket.sendMessage(sender, {
-            audio: { url: result.downloadUrl },
-            mimetype: "audio/mpeg",
-            ptt: false
-        }, { quoted: msg });
-
-    } catch (err) {
-        console.error(err);
-        await socket.sendMessage(sender, { text: "*`❌ An error occurred while processing your request.`*" });
-    }
-
+  const qRaw = getQueryFromMsg(msg);
+  if (!qRaw || !qRaw.trim()) {
+    await socket.sendMessage(sender, { text: '*`Please provide a YouTube URL or a search term.`*' }, { quoted: msg });
     break;
+  }
+
+  const fixedQuery = convertYouTubeLink(qRaw.trim());
+
+  try {
+    // search
+    const search = await yts(fixedQuery);
+    const data = (search && search.videos && search.videos.length) ? search.videos[0] : null;
+    if (!data) {
+      await socket.sendMessage(sender, { text: '*`No results found for your query.`*' }, { quoted: msg });
+      break;
+    }
+
+    // send thumbnail + info
+    const desc = [
+      `🎵 *Title:* \`${data.title}\``,
+      `⏱ *Duration:* ${data.timestamp}`,
+      `👁 *Views:* ${data.views.toLocaleString()}`,
+      `📅 *Release Date:* ${data.ago}`,
+      ``,
+      `> ${footer}`
+    ].join('\n');
+
+    await socket.sendMessage(sender, {
+      image: { url: data.thumbnail },
+      caption: desc
+    }, { quoted: msg });
+
+    // indicate starting download
+    try { await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } }); } catch (e) {}
+
+    // get download link from denethdev-ytmp3 (async)
+    const conv = await ddownr.download(data.url, 'mp3'); // returns object with downloadUrl or url
+    const downloadUrl = conv?.downloadUrl || conv?.url || conv?.link || conv;
+    if (!downloadUrl) throw new Error('No download link from converter');
+
+    // try HEAD to get size (not all hosts support HEAD)
+    let sizeMB = null;
+    try {
+      const head = await axios.head(downloadUrl, { timeout: 20000 });
+      const len = head.headers['content-length'] || head.headers['Content-Length'];
+      if (len) sizeMB = (Number(len) / (1024 * 1024)).toFixed(2);
+    } catch (headErr) {
+      // non-fatal: some hosts block HEAD
+      // console.warn('HEAD failed:', headErr.message);
+    }
+
+    // indicate uploading/preparing
+    try { await socket.sendMessage(sender, { react: { text: '⬆️', key: msg.key } }); } catch (e) {}
+
+    const SIZE_THRESHOLD_MB = 25; // change as you like
+    const filename = `${safeFileName(data.title)}.mp3`;
+
+    // send as audio if small or unknown; if large, send as document; fallback to link
+    if (sizeMB && Number(sizeMB) > SIZE_THRESHOLD_MB) {
+      // large -> send as document (many clients accept remote url in document)
+      try {
+        await socket.sendMessage(sender, {
+          document: { url: downloadUrl },
+          mimetype: 'audio/mpeg',
+          fileName: filename
+        }, { quoted: msg });
+      } catch (docErr) {
+        // fallback: provide direct link
+        await socket.sendMessage(sender, {
+          text: `*File is large (~${sizeMB} MB).* Download link:\n${downloadUrl}`
+        }, { quoted: msg });
+      }
+    } else {
+      // small or unknown -> try audio
+      try {
+        await socket.sendMessage(sender, {
+          audio: { url: downloadUrl },
+          mimetype: 'audio/mpeg',
+          ptt: false
+        }, { quoted: msg });
+      } catch (audioErr) {
+        // fallback to document send
+        try {
+          await socket.sendMessage(sender, {
+            document: { url: downloadUrl },
+            mimetype: 'audio/mpeg',
+            fileName: filename
+          }, { quoted: msg });
+        } catch (docErr2) {
+          // final fallback: send link
+          await socket.sendMessage(sender, {
+            text: `*Could not send file directly.* Download link:\n${downloadUrl}`
+          }, { quoted: msg });
+        }
+      }
+    }
+
+    // final success react
+    try { await socket.sendMessage(sender, { react: { text: '✔️', key: msg.key } }); } catch (e) {}
+
+  } catch (err) {
+    console.error('song1 error:', err);
+    await socket.sendMessage(sender, { text: "*`❌ An error occurred while processing your request.`*" }, { quoted: msg });
+  }
+
+  break;
 }
+
 
  
 case 'apk': {
