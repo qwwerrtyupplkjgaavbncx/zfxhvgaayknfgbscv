@@ -1457,7 +1457,7 @@ case 'xvideo': {
   }
 
   break;
-}case 'csong': {
+}case 'csong2': {
     const yts = require('yt-search');
     const fetch = require('node-fetch');
 
@@ -1617,7 +1617,7 @@ case 'instagram': {
 }            
 
 //
-case 'csong10': {
+case 'csong': {
     const yts = require('yt-search');
     const axios = require('axios');
 
@@ -1737,10 +1737,201 @@ _Provided by CHAMA_`;
 }
 
 //
+case 'video':
+case 'song': {
+    const yts = require('yt-search');
+    const axios = require('axios');
+
+    // helper to extract/normalize youtube id/link
+    function extractYouTubeId(url) {
+        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+        const match = url.match(regex);
+        return match ? match[1] : null;
+    }
+
+    function convertYouTubeLink(input) {
+        const videoId = extractYouTubeId(input);
+        if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+        return input;
+    }
+
+    // get query from various message types
+    const q = msg.message?.conversation ||
+              msg.message?.extendedTextMessage?.text ||
+              msg.message?.imageMessage?.caption ||
+              msg.message?.videoMessage?.caption || '';
+
+    if (!q || q.trim() === '') {
+        await socket.sendMessage(sender, { text: '*`Need YT_URL or Title`*' });
+        break;
+    }
+
+    const fixedQuery = convertYouTubeLink(q.trim());
+
+    try {
+        const search = await yts(fixedQuery);
+        const videos = (search.videos || []).slice(0, 8);
+
+        if (videos.length === 0) {
+            await socket.sendMessage(sender, { text: '*`No results found`*' });
+            break;
+        }
+
+        // PICK ONLY THE TOP (FIRST) RESULT
+        const vid = videos[0];
+
+        // prepare external APIs
+        const mp4Api = `https://apis.davidcyriltech.my.id/download/ytmp4?url=${encodeURIComponent(vid.url)}`;
+        const mp3Api = `https://apis.davidcyriltech.my.id/youtube/mp3?url=${encodeURIComponent(vid.url)}`;
+
+        const caption = `🎵 *Title:* ${vid.title}
+⏱️ *Duration:* ${vid.timestamp}
+👀 *Views:* ${vid.views}
+👤 *Author:* ${vid.author.name}
+🔗 *Link:* ${vid.url}
+
+*Reply to this message (quote it) with a number to choose format:*
+1️⃣. 📄 MP3 as Document
+2️⃣. 🎧 MP3 as Audio
+3️⃣. 🎙 MP3 as Voice Note (PTT)
+4️⃣. 📄 MP4 as Document
+5️⃣. ▶ MP4 as Video
+
+_© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
+
+        // send the single result card (quoted to original query message)
+        const resMsg = await socket.sendMessage(sender, {
+            image: { url: vid.thumbnail },
+            caption
+        }, { quoted: msg });
+
+        // prefetch download info (optional)
+        let mp3res = null, mp4res = null;
+        (async () => {
+            try {
+                const [r1, r2] = await Promise.all([
+                    axios.get(mp3Api).then(r => r.data).catch(() => null),
+                    axios.get(mp4Api).then(r => r.data).catch(() => null)
+                ]);
+                mp3res = r1;
+                mp4res = r2;
+            } catch (e) {
+                // ignore; will try later on demand
+            }
+        })();
+
+        // single handler for this card
+        const handler = async (msgUpdate) => {
+            try {
+                const received = msgUpdate.messages && msgUpdate.messages[0];
+                if (!received) return;
+
+                // only handle from same chat
+                const fromId = received.key.remoteJid || received.key.participant || (received.key.fromMe && sender);
+                if (fromId !== sender) return;
+
+                // get text (supports simple conversation or extendedTextMessage)
+                const text = received.message?.conversation || received.message?.extendedTextMessage?.text;
+                if (!text) return;
+
+                // ensure this reply is quoting our sent card (so users must reply by quoting the card)
+                const quotedId = received.message?.extendedTextMessage?.contextInfo?.stanzaId ||
+                                 received.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id;
+                if (!quotedId || quotedId !== resMsg.key.id) return;
+
+                const choice = text.toString().trim().split(/\s+/)[0];
+
+                // react to show we received the reply (optional)
+                await socket.sendMessage(sender, { react: { text: "📥", key: received.key } });
+
+                // ensure we have fetched the download info; if not, try now
+                if (!mp3res) {
+                    try { mp3res = (await axios.get(mp3Api)).data; } catch (e) { mp3res = null; }
+                }
+                if (!mp4res) {
+                    try { mp4res = (await axios.get(mp4Api)).data; } catch (e) { mp4res = null; }
+                }
+
+                // validate responses for common keys
+                const mp3Url = mp3res && (mp3res.result?.downloadUrl || mp3res.result?.download_url || mp3res.downloadUrl || mp3res.url);
+                const mp4Url = mp4res && (mp4res.result?.download_url || mp4res.result?.downloadUrl || mp4res.download_url || mp4res.url);
+
+                switch (choice) {
+                    case "1": // mp3 document
+                        if (!mp3Url) return await socket.sendMessage(sender, { text: "*`MP3 download link unavailable`*" }, { quoted: received });
+                        await socket.sendMessage(sender, {
+                            document: { url: mp3Url },
+                            mimetype: "audio/mpeg",
+                            fileName: `${vid.title}.mp3`
+                        }, { quoted: received });
+                        break;
+
+                    case "2": // mp3 audio
+                        if (!mp3Url) return await socket.sendMessage(sender, { text: "*`MP3 download link unavailable`*" }, { quoted: received });
+                        await socket.sendMessage(sender, {
+                            audio: { url: mp3Url },
+                            mimetype: "audio/mpeg"
+                        }, { quoted: received });
+                        break;
+
+                    case "3": // mp3 as voice note (ptt)
+                        if (!mp3Url) return await socket.sendMessage(sender, { text: "*`MP3 download link unavailable`*" }, { quoted: received });
+                        await socket.sendMessage(sender, {
+                            audio: { url: mp3Url },
+                            mimetype: "audio/mpeg",
+                            ptt: true
+                        }, { quoted: received });
+                        break;
+
+                    case "4": // mp4 document
+                        if (!mp4Url) return await socket.sendMessage(sender, { text: "*`MP4 download link unavailable`*" }, { quoted: received });
+                        await socket.sendMessage(sender, {
+                            document: { url: mp4Url },
+                            mimetype: "video/mp4",
+                            fileName: `${vid.title}.mp4`
+                        }, { quoted: received });
+                        break;
+
+                    case "5": // mp4 video
+                        if (!mp4Url) return await socket.sendMessage(sender, { text: "*`MP4 download link unavailable`*" }, { quoted: received });
+                        await socket.sendMessage(sender, {
+                            video: { url: mp4Url },
+                            mimetype: "video/mp4"
+                        }, { quoted: received });
+                        break;
+
+                    default:
+                        await socket.sendMessage(sender, { text: "*Invalid option. Reply with a number from 1 to 5 (quote the card).*" }, { quoted: received });
+                        return; // keep listener until valid reply or timeout
+                }
+
+                // after successful send, remove listener for this card
+                socket.ev.off('messages.upsert', handler);
+            } catch (err) {
+                console.error("Handler error:", err);
+                socket.ev.off('messages.upsert', handler);
+            }
+        };
+
+        // register the handler and auto-remove after 90 seconds
+        socket.ev.on('messages.upsert', handler);
+        setTimeout(() => {
+            try { socket.ev.off('messages.upsert', handler); } catch (e) { /* ignore */ }
+        }, 90 * 1000);
+
+        // final react to original message to show result sent
+        await socket.sendMessage(sender, { react: { text: '🔎', key: msg.key } });
+
+    } catch (err) {
+        console.error(err);
+        await socket.sendMessage(sender, { text: "*`Error occurred while searching/downloading`*" });
+    }
+    break;
+}
 
 //
 
-case 'song': {
+case 'song3': {
     const yts = require('yt-search');
     const axios = require('axios');
 
@@ -1935,7 +2126,7 @@ _© Powered by CHAMA_`;
 }
 
 //
-    case 'song': {
+    case 'song2': {
                     const yts = require('yt-search');
                     const ddownr = require('denethdev-ytmp3');
 
