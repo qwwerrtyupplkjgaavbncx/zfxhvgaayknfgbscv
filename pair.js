@@ -1216,7 +1216,272 @@ case 'song1': {
 
     break;
 }
+//
+case 'csong10': {
+  // Usage: .csong <jid> <YouTube URL or search term>
+  // Assumes these are available in the surrounding scope:
+  // socket (connection), msg (incoming message), args (array), dy_scrap, replaceYouTubeID, config
+  try {
+    if (!args || args.length < 2) {
+      await socket.sendMessage(msg.key.remoteJid, { text: '❌ Usage: .csong <jid> <YouTube URL or search term>' }, { quoted: msg });
+      break;
+    }
 
+    // normalize target JID
+    let target = args[0];
+    if (!target.includes('@')) target = `${target}@s.whatsapp.net`;
+
+    const q = args.slice(1).join(' ').trim();
+    if (!q) {
+      await socket.sendMessage(msg.key.remoteJid, { text: '❌ Please provide a YouTube URL or search query after the JID.' }, { quoted: msg });
+      break;
+    }
+
+    // determine video id
+    let id = q.startsWith('http') ? replaceYouTubeID(q) : null;
+    if (!id) {
+      const searchResults = await dy_scrap.ytsearch(q).catch(()=>null);
+      if (!searchResults?.results?.length) {
+        await socket.sendMessage(msg.key.remoteJid, { text: '❌ No results found for that query.' }, { quoted: msg });
+        break;
+      }
+      id = searchResults.results[0].videoId;
+    }
+
+    // fetch video info
+    const data = await dy_scrap.ytsearch(`https://youtube.com/watch?v=${id}`).catch(()=>null);
+    if (!data?.results?.length) {
+      await socket.sendMessage(msg.key.remoteJid, { text: '❌ Failed to fetch video info.' }, { quoted: msg });
+      break;
+    }
+
+    const video = data.results[0];
+    const { url, title, image, timestamp, ago, views, author } = video;
+
+    const infoCaption = `🍄 *SONG* 🍄
+
+🎵 *Title:* ${title || 'Unknown'}
+⏳ *Duration:* ${timestamp || 'Unknown'}
+👀 *Views:* ${views || 'Unknown'}
+🌏 *Release Ago:* ${ago || 'Unknown'}
+👤 *Author:* ${author?.name || 'Unknown'}
+🖇 *Url:* ${url || 'Unknown'}
+
+🔊 Sending playable audio...
+${(typeof config !== 'undefined' && config.FOOTER) ? config.FOOTER : '𓆩chamindu𓆪'}`;
+
+    // send an info card to the target (quoted to the command for context)
+    let sentInfo = null;
+    try {
+      sentInfo = await socket.sendMessage(target, { image: { url: image }, caption: infoCaption }, { quoted: msg });
+      try { await socket.sendMessage(target, { react: { text: '🎶', key: sentInfo.key } }); } catch(e) {}
+    } catch (err) {
+      // if sending image fails, fall back to text
+      await socket.sendMessage(target, { text: infoCaption }, { quoted: msg });
+    }
+
+    // helpers
+    const sanitizeFilename = (name, ext = '') => {
+      const clean = (name || 'song').replace(/[/\\?%*:|"<>]/g, '').replace(/\s+/g, ' ').trim();
+      return (clean.length > 120 ? clean.slice(0,120) : clean) + ext;
+    };
+    const pickDownloadUrl = (res) => {
+      if (!res) return null;
+      return res.result?.download?.url || res.result?.downloadUrl || res.result?.download_url ||
+             res.result?.url || res.download?.url || res.downloadUrl || res.download_url || res.url || null;
+    };
+
+    // fetch direct audio link
+    const resp = await dy_scrap.ytmp3(`https://youtube.com/watch?v=${id}`).catch(()=>null);
+    const dl = pickDownloadUrl(resp);
+
+    if (!dl) {
+      await socket.sendMessage(msg.key.remoteJid, { text: '❌ Could not find a download link for the audio.' }, { quoted: msg });
+      break;
+    }
+
+    // try to send as playable audio, fallback to document
+    try {
+      await socket.sendMessage(target, { audio: { url: dl }, mimetype: 'audio/mpeg' });
+      await socket.sendMessage(msg.key.remoteJid, { text: `✅ Sent audio to ${target}` }, { quoted: msg }).catch(()=>{});
+    } catch (errAudio) {
+      const fname = sanitizeFilename(title, '.mp3');
+      try {
+        await socket.sendMessage(target, { document: { url: dl }, fileName: fname, mimetype: 'audio/mpeg', caption: title });
+        await socket.sendMessage(msg.key.remoteJid, { text: `✅ Sent mp3 document to ${target}` }, { quoted: msg }).catch(()=>{});
+      } catch (errDoc) {
+        await socket.sendMessage(msg.key.remoteJid, { text: `❌ Failed to send audio: ${(errDoc || errAudio)?.message || errDoc || errAudio}` }, { quoted: msg });
+      }
+    }
+
+  } catch (error) {
+    console.error('csong case error:', error);
+    try { await socket.sendMessage(msg.key.remoteJid, { text: `❌ Error: ${error?.message || 'Unknown error'}` }, { quoted: msg }); } catch(e) {}
+  }
+  break;
+}
+
+//
+//
+case 'song4': {
+    // Assumes: `dy_scrap` and `replaceYouTubeID` are already defined in the file (as in your snippet).
+    // Also assumes your connection variable is `socket` and incoming message object is `msg` and chat id is `sender`.
+    try {
+        // read query from common message shapes
+        const q = msg.message?.conversation ||
+                  msg.message?.extendedTextMessage?.text ||
+                  msg.message?.imageMessage?.caption ||
+                  msg.message?.videoMessage?.caption || '';
+
+        if (!q || q.trim() === '') {
+            await socket.sendMessage(sender, { text: "❌ Please provide a Query or Youtube URL!" }, { quoted: msg });
+            break;
+        }
+
+        // decide id (if user passed full url)
+        let id = q.startsWith("http") ? replaceYouTubeID(q) : null;
+
+        if (!id) {
+            const searchResults = await dy_scrap.ytsearch(q);
+            if (!searchResults?.results?.length) {
+                await socket.sendMessage(sender, { text: "❌ No results found!" }, { quoted: msg });
+                break;
+            }
+            id = searchResults.results[0].videoId;
+        }
+
+        // fetch full info
+        const data = await dy_scrap.ytsearch(`https://youtube.com/watch?v=${id}`);
+        if (!data?.results?.length) {
+            await socket.sendMessage(sender, { text: "❌ Failed to fetch video!" }, { quoted: msg });
+            break;
+        }
+
+        const video = data.results[0];
+        const { url, title, image, timestamp, ago, views, author } = video;
+
+        const info = `🍄 *SONG DOWNLOADER* 🍄
+
+🎵 *Title:* ${title || "Unknown"}
+⏳ *Duration:* ${timestamp || "Unknown"}
+👀 *Views:* ${views || "Unknown"}
+🌏 *Release Ago:* ${ago || "Unknown"}
+👤 *Author:* ${author?.name || "Unknown"}
+🖇 *Url:* ${url || "Unknown"}
+
+🔽 *Reply by quoting this card with:*
+1️⃣  Audio (playable)
+2️⃣  Document (mp3 file)
+
+${(typeof config !== "undefined" && config.FOOTER) ? config.FOOTER : "𓆩chamindu𓆪"}`;
+
+        // send card (quoted to original msg)
+        const sentMsg = await socket.sendMessage(sender, { image: { url: image }, caption: info }, { quoted: msg });
+        const messageID = sentMsg.key.id;
+
+        // react to show we sent
+        try { await socket.sendMessage(sender, { react: { text: '🎶', key: sentMsg.key } }); } catch (e) { /* ignore */ }
+
+        // helper: sanitize filename
+        function sanitizeFilename(name, ext = '') {
+            const clean = (name || 'song').replace(/[/\\?%*:|"<>]/g, '').replace(/\s+/g, ' ').trim();
+            const truncated = clean.length > 120 ? clean.slice(0, 120) : clean;
+            return `${truncated}${ext}`;
+        }
+
+        // pick download url shapes returned by dy_scrap
+        function pickDownloadUrl(res) {
+            if (!res) return null;
+            return res.result?.download?.url ||
+                   res.result?.downloadUrl ||
+                   res.result?.download_url ||
+                   res.result?.url ||
+                   res.download?.url ||
+                   res.downloadUrl ||
+                   res.download_url ||
+                   res.url ||
+                   null;
+        }
+
+        // listener (kept as a reference for removal)
+        const handler = async (update) => {
+            try {
+                const mekInfo = Array.isArray(update.messages) ? update.messages[0] : update;
+                if (!mekInfo?.message) return;
+
+                // ensure from same chat
+                const fromId = mekInfo.key?.remoteJid || mekInfo.key?.participant || (mekInfo.key?.fromMe ? sender : undefined);
+                if (!fromId || fromId !== sender) return;
+
+                // ignore our own messages
+                if (mekInfo.key?.fromMe) return;
+
+                // text content
+                const messageText = mekInfo.message?.conversation || mekInfo.message?.extendedTextMessage?.text;
+                if (!messageText) return;
+
+                // check quoted stanza/message id in various shapes
+                const ctx = mekInfo.message?.extendedTextMessage?.contextInfo || {};
+                const quotedId = ctx.stanzaId || ctx.quotedMessage?.key?.id || ctx.quotedMessage?.key?.stanzaId || ctx.quotedMessage?.key?.id;
+                if (!quotedId || quotedId !== messageID) return;
+
+                const userReply = messageText.trim().split(/\s+/)[0];
+
+                // small ack react
+                try { await socket.sendMessage(sender, { react: { text: "📥", key: mekInfo.key } }); } catch (e) { /* ignore */ }
+
+                // process choice
+                if (userReply === "1") {
+                    // audio playable
+                    const resp = await dy_scrap.ytmp3(`https://youtube.com/watch?v=${id}`);
+                    const dl = pickDownloadUrl(resp);
+                    if (!dl) {
+                        await socket.sendMessage(sender, { text: "❌ Download link not found!" }, { quoted: mekInfo });
+                    } else {
+                        await socket.sendMessage(sender, { audio: { url: dl }, mimetype: "audio/mpeg" }, { quoted: mekInfo });
+                        await socket.sendMessage(sender, { text: "✅ Sent as audio", edit: mekInfo.key }).catch(()=>{});
+                        // remove listener
+                        socket.ev.off('messages.upsert', handler);
+                    }
+                } else if (userReply === "2") {
+                    // document
+                    const resp = await dy_scrap.ytmp3(`https://youtube.com/watch?v=${id}`);
+                    const dl = pickDownloadUrl(resp);
+                    if (!dl) {
+                        await socket.sendMessage(sender, { text: "❌ Download link not found!" }, { quoted: mekInfo });
+                    } else {
+                        const fname = sanitizeFilename(title, '.mp3');
+                        await socket.sendMessage(sender, {
+                            document: { url: dl },
+                            fileName: fname,
+                            mimetype: "audio/mpeg",
+                            caption: title
+                        }, { quoted: mekInfo });
+                        await socket.sendMessage(sender, { text: "✅ Sent as document", edit: mekInfo.key }).catch(()=>{});
+                        socket.ev.off('messages.upsert', handler);
+                    }
+                } else {
+                    await socket.sendMessage(sender, { text: "❌ Invalid choice! Reply with 1 or 2 (quote the card)." }, { quoted: mekInfo });
+                }
+
+            } catch (err) {
+                console.error("play3 handler error:", err);
+                try { socket.ev.off('messages.upsert', handler); } catch (e) {}
+            }
+        };
+
+        // register and auto-remove after 90s
+        socket.ev.on('messages.upsert', handler);
+        setTimeout(() => { try { socket.ev.off('messages.upsert', handler); } catch (e) {} }, 90 * 1000);
+
+    } catch (error) {
+        console.error("play3 error:", error);
+        try { await socket.sendMessage(sender, { react: { text: '❌', key: msg.key } }); } catch (e) {}
+        await socket.sendMessage(sender, { text: `❌ *An error occurred:* ${error?.message || "Error!"}` }, { quoted: msg });
+    }
+    break;
+}
+//
  
 case 'apk': {
     const axios = require('axios');
