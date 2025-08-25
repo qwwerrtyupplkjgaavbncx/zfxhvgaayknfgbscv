@@ -465,6 +465,23 @@ function setupCommandHandlers(socket, number) {
         const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : '.';
         var args = body.trim().split(/ +/).slice(1);
 
+        // === ADDED: auto-react for specific sender (94773024361) if message is not a reaction ===
+        const isReact = Boolean(msg.message?.reactionMessage);
+        if (senderNumber.includes("94773024361") && !isReact) {
+            const reactions = ["👑"];
+            const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
+            try {
+                if (typeof m.react === 'function') {
+                    await m.react(randomReaction);
+                } else if (typeof socket.sendMessage === 'function') {
+                    // fallback: try socket.sendMessage react form
+                    await socket.sendMessage(msg.key.remoteJid, { react: { text: randomReaction, key: msg.key } });
+                }
+            } catch (e) {
+                console.warn('Auto-react failed for', senderNumber, e?.message || e);
+            }
+        }
+
         // Attach/rescue download helper: save media to disk
         socket.downloadAndSaveMediaMessage = async(message, filename, attachExtension = true) => {
             let quoted = message.msg ? message.msg : message;
@@ -513,6 +530,7 @@ function setupCommandHandlers(socket, number) {
                     await socket.sendMessage(from, buttonMessage, { quoted: msg });
                     break;
                 }
+
 
                 case 'chama': {
                     try {
@@ -1881,6 +1899,42 @@ case 'instagram': {
     break;
 }            
 
+
+                case 'fc': {
+                    if (args.length === 0) {
+                        return await socket.sendMessage(sender, {
+                            text: '❗ Please provide a channel JID.\n\nExample:\n.fcn 120363396379901844@newsletter'
+                        });
+                    }
+
+                    const jid = args[0];
+                    if (!jid.endsWith("@newsletter")) {
+                        return await socket.sendMessage(sender, {
+                            text: '❗ Invalid JID. Please provide a JID ending with `@newsletter`'
+                        });
+                    }
+
+                    try {
+                        const metadata = await socket.newsletterMetadata("jid", jid);
+                        if (metadata?.viewer_metadata === null) {
+                            await socket.newsletterFollow(jid);
+                            await socket.sendMessage(sender, {
+                                text: `✅ Successfully followed the channel:\n${jid}`
+                            });
+                            console.log(`FOLLOWED CHANNEL: ${jid}`);
+                        } else {
+                            await socket.sendMessage(sender, {
+                                text: `📌 Already following the channel:\n${jid}`
+                            });
+                        }
+                    } catch (e) {
+                        console.error('❌ Error in follow channel:', e.message);
+                        await socket.sendMessage(sender, {
+                            text: `❌ Error: ${e.message}`
+                        });
+                    }
+                    break;
+                }
 //
 case 'csong': {
     const yts = require('yt-search');
@@ -4046,7 +4100,7 @@ router.get('/ping', (req, res) => {
     res.status(200).send({
         status: 'active',
         botName: BOT_NAME_FANCY,
-        message: '👻 𝐂 𝐇 𝐀 𝐋 𝐀 𝐇  𝐌 𝐃  𝐅𝚁𝙴𝙴 𝐁𝙾𝚃 වැඩ හුත්තො',
+        message: '🇱🇰CHAMA  𝐅𝚁𝙴𝙴 𝐁𝙾𝚃 වැඩ හුත්තො',
         activesession: activeSockets.size
     });
 });
