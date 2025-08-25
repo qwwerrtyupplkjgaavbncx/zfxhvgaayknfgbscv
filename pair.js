@@ -1740,7 +1740,7 @@ _Provided by CHAMA_`;
 
 //
 
-case 'song10': {
+case 'song': {
     const yts = require('yt-search');
     const axios = require('axios');
 
@@ -2181,6 +2181,172 @@ case 'freebot': {
 
     break;
 }
+
+//===
+case 'fb': {
+  const getFBInfo = require("@xaviabot/fb-downloader");
+  try {
+    if (!q || !q.startsWith("https://")) {
+      await conn.sendMessage(from, { text: "❌ Please provide a valid URL." }, { quoted: mek });
+      break;
+    }
+
+    await conn.sendMessage(from, { react: { text: "💡", key: mek.key } });
+
+    // fetch FB info
+    let result = null;
+    try {
+      result = await getFBInfo(q);
+    } catch (err) {
+      console.error("FB info error:", err);
+      await conn.sendMessage(from, { text: "*Error fetching Facebook info.*" }, { quoted: mek });
+      break;
+    }
+
+    // helper to pick likely download urls from result
+    const pick = (obj, keys) => {
+      if (!obj) return null;
+      for (let k of keys) {
+        if (obj[k]) return obj[k];
+      }
+      return null;
+    };
+
+    const sdUrl = pick(result, ['sd', 'sd_url', 'sdUrl', 'download', 'downloadUrl', 'url']);
+    const hdUrl = pick(result, ['hd', 'hd_url', 'hdUrl', 'hdDownload', 'hd_download']);
+    const audioUrl = pick(result, ['audio', 'audio_url', 'audioUrl', 'mp3', 'mp3_url']);
+
+    const captionHeader = `*╭─────────────⊶*
+*│*🎥 *𝙵𝙱 𝚅𝙸𝙳𝙴𝙾 𝙳𝙾𝚆𝙽𝙻𝙾𝙰𝙳𝙴𝚁*
+*╰─────────────────⊶*
+*┏━━━━━━━━━━━━━━━━━━━━┓*
+*┃ 🎥 ᴛɪᴛʟᴇ:* ${result.title || 'Unknown'}
+*┃ 🔗 ᴜʀʟ:* ${q}
+*┗━━━━━━━━━━━━━━━━━━━━┛*
+
+*🔢 *ʀᴇᴘʟʏ ʙᴇʟᴏᴡ ɴᴜᴍʙᴇʀ:*
+
+*[1] 𝗙𝗔𝗖𝗘𝗕𝗢𝗢𝗞 𝗩𝗜𝗗𝗘𝗢*
+*1.1 | 🪫 SD*
+*1.2 | 🔋 HD*
+
+*[2] 𝗙𝗔𝗖𝗘𝗕𝗢𝗢𝗞 𝗔𝗨𝗗𝗜𝗢*
+*2.1 | 🎶 Audio*
+*2.2 | 🗃️ Document (mp3)*
+*2.3 | 🎤 Voice note (ptt)*
+
+_𝗣𝗢𝗪𝗘𝗥𝗘𝗗 𝗕𝗬 𝗖𝗛𝗔𝗠𝗔_`;
+
+    // send menu (quoted)
+    const sentMsg = await conn.sendMessage(from, {
+      image: { url: result.thumbnail || 'https://files.catbox.moe/0eo2q4.jpg' },
+      caption: captionHeader,
+      contextInfo: {
+        mentionedJid: ['94774575878@s.whatsapp.net'],
+        externalAdReply: {
+          title: '𝗖𝗛𝗔𝗠𝗔 𝗠𝗗 𝗩1',
+          body: 'Facebook downloader',
+          mediaType: 1,
+          sourceUrl: "https://github.com/CHMA2009/-CHAMA-MD",
+          thumbnailUrl: 'https://files.catbox.moe/0eo2q4.jpg'
+        }
+      }
+    }, { quoted: mek });
+
+    const messageID = sentMsg.key.id;
+
+    // one-time handler
+    const handler = async (messageUpdate) => {
+      try {
+        const up = messageUpdate.messages && messageUpdate.messages[0];
+        if (!up || !up.message) return;
+
+        const fromJid = up.key.remoteJid;
+        // ensure reply in same chat
+        if (fromJid !== from) return;
+
+        // get the reply text (support conversation or extendedTextMessage or caption)
+        const userText =
+          up.message.conversation ||
+          up.message.extendedTextMessage?.text ||
+          up.message.imageMessage?.caption ||
+          up.message.videoMessage?.caption ||
+          '';
+
+        if (!userText) return;
+
+        // check that the message is a reply to our menu message
+        const stanzaId = up.message.extendedTextMessage?.contextInfo?.stanzaId;
+        if (stanzaId !== messageID) return;
+
+        // react that we received
+        await conn.sendMessage(from, { react: { text: '⬇️', key: up.key } });
+
+        const choice = userText.trim().split(/\s+/)[0].toLowerCase();
+
+        // helpers to validate and send
+        const sendVideo = async (url, label) => {
+          if (!url) return await conn.sendMessage(from, { text: `*${label} unavailable.*` }, { quoted: up });
+          await conn.sendMessage(from, { video: { url }, caption: `*♯ 𝙿𝙾𝚆𝙴𝚁𝙳 𝙱𝚈 𝙲𝙷𝙰𝙼𝙰 𝙼𝙳 𝚅1*` }, { quoted: up });
+        };
+        const sendAudio = async (url, asDocument=false, asPtt=false) => {
+          if (!url) return await conn.sendMessage(from, { text: `*Audio unavailable.*` }, { quoted: up });
+          if (asDocument) {
+            await conn.sendMessage(from, {
+              document: { url },
+              mimetype: "audio/mpeg",
+              fileName: `CHAMA_FBDL.mp3`,
+              caption: "*♯ 𝙿𝙾𝚆𝙴𝚁𝙳 𝙱𝚈 𝙲𝙷𝙰𝙼𝙰 𝙼𝙳*"
+            }, { quoted: up });
+          } else {
+            await conn.sendMessage(from, { audio: { url }, mimetype: "audio/mpeg", ptt: !!asPtt }, { quoted: up });
+          }
+        };
+
+        // Map choices
+        if (choice === '1' || choice === '1.1' || choice === '1.1.') {
+          // SD video
+          await sendVideo(sdUrl, 'SD video');
+        } else if (choice === '1.2' || choice === '1.2.' || choice === '1.2') {
+          // HD video
+          await sendVideo(hdUrl || sdUrl, 'HD video');
+        } else if (choice === '2' || choice === '2.1') {
+          // audio standard
+          await sendAudio(audioUrl || sdUrl);
+        } else if (choice === '2.2') {
+          await sendAudio(audioUrl || sdUrl, true, false); // as document
+        } else if (choice === '2.3') {
+          await sendAudio(audioUrl || sdUrl, false, true); // as ptt
+        } else {
+          await conn.sendMessage(from, { text: "*Invalid option. Reply with 1.1 / 1.2 / 2.1 / 2.2 / 2.3.*" }, { quoted: up });
+          return; // don't clear handler yet — allow another valid reply within timeout
+        }
+
+        // react success and remove handler
+        await conn.sendMessage(from, { react: { text: '✅', key: up.key } });
+        conn.ev.off('messages.upsert', handler);
+      } catch (err) {
+        console.error("fb handler error:", err);
+        try { conn.ev.off('messages.upsert', handler); } catch (e) { /* ignore */ }
+      }
+    };
+
+    // register handler and set timeout to remove after 90s
+    conn.ev.on('messages.upsert', handler);
+    setTimeout(() => {
+      try { conn.ev.off('messages.upsert', handler); } catch (e) {}
+    }, 90_000);
+
+  } catch (e) {
+    console.error("FB command error:", e);
+    await reply(`Error: ${e.message || e}`);
+  }
+  break;
+}
+//====
+
+
+
 
                 // JID COMMAND
 case 'jid': {
