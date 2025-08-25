@@ -1614,79 +1614,132 @@ case 'instagram': {
         });
     }
     break;
-}                case 'song': {
-                    const yts = require('yt-search');
-                    const ddownr = require('denethdev-ytmp3');
+}            
 
-                    function extractYouTubeId(url) {
-                        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-                        const match = url.match(regex);
-                        return match ? match[1] : null;
-                    }
+//
+case 'csong10': {
+    const yts = require('yt-search');
+    const axios = require('axios');
 
-                    function convertYouTubeLink(input) {
-                        const videoId = extractYouTubeId(input);
-                        if (videoId) {
-                            return `https://www.youtube.com/watch?v=${videoId}`;
-                        }
-                        return input;
-                    }
+    // helpers (reuse from your old code if already defined)
+    function extractYouTubeId(url) {
+        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+        const match = url.match(regex);
+        return match ? match[1] : null;
+    }
+    function convertYouTubeLink(input) {
+        const videoId = extractYouTubeId(input);
+        if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+        return input;
+    }
 
-                    const q = msg.message?.conversation || 
-                              msg.message?.extendedTextMessage?.text || 
-                              msg.message?.imageMessage?.caption || 
-                              msg.message?.videoMessage?.caption || '';
+    // read raw text of command message
+    const body = msg.message?.conversation ||
+                 msg.message?.extendedTextMessage?.text ||
+                 msg.message?.imageMessage?.caption ||
+                 msg.message?.videoMessage?.caption || '';
 
-                    if (!q || q.trim() === '') {
-                        return await socket.sendMessage(sender, { text: '*`Need YT_URL or Title`*' });
-                    }
+    const parts = body.trim().split(/\s+/);
+    // expected: .csong <jid> <query...>
+    if (parts.length < 3) {
+        await socket.sendMessage(sender, { text: '*Usage:* .csong <jid> <YouTube URL or search term>' }, { quoted: msg });
+        break;
+    }
 
-                    const fixedQuery = convertYouTubeLink(q.trim());
+    const rawTarget = parts[1].trim();
+    const query = parts.slice(2).join(' ').trim();
+    if (!query) {
+        await socket.sendMessage(sender, { text: '*Provide a YouTube URL or search term.*' }, { quoted: msg });
+        break;
+    }
 
-                    try {
-                        const search = await yts(fixedQuery);
-                        const data = search.videos[0];
-                        if (!data) {
-                            return await socket.sendMessage(sender, { text: '*`No results found`*' });
-                        }
+    // normalize jid (phone -> @s.whatsapp.net, group-like -> @g.us)
+    let targetJid = rawTarget.includes('@') ? rawTarget
+                   : (rawTarget.includes('-') ? `${rawTarget}@g.us` : `${rawTarget}@s.whatsapp.net`);
 
-                        const url = data.url;
-                        const desc = `
-🎵 *𝚃𝚒𝚝𝚕𝚎 :* \`${data.title}\`
+    try {
+        // determine final video url + basic meta
+        let vidInfo = null;
+        let videoUrl = convertYouTubeLink(query);
 
-◆⏱️ *𝙳𝚞𝚛𝚊𝚝𝚒𝚘𝚗* : ${data.timestamp} 
+        if (!extractYouTubeId(videoUrl)) {
+            // not a url -> search and pick top result
+            const search = await yts(query);
+            const first = (search.videos || [])[0];
+            if (!first) {
+                await socket.sendMessage(sender, { text: '*No YouTube results found.*' }, { quoted: msg });
+                break;
+            }
+            vidInfo = first;
+            videoUrl = first.url;
+        } else {
+            // url or id provided -> try to get video meta via yts
+            const search = await yts(videoUrl);
+            vidInfo = (search.videos || [])[0] || {
+                title: 'Unknown title',
+                url: videoUrl,
+                thumbnail: null,
+                timestamp: 'Unknown',
+                views: 'Unknown',
+                author: { name: 'Unknown' }
+            };
+        }
 
-◆ *𝚅𝚒𝚎𝚠𝚜* : ${data.views}
+        // call mp3 API (swap to your preferred endpoint if needed)
+        const mp3Api = `https://apis.davidcyriltech.my.id/youtube/mp3?url=${encodeURIComponent(videoUrl)}`;
+        let mp3res = null;
+        try {
+            mp3res = (await axios.get(mp3Api, { timeout: 30000 })).data;
+        } catch (e) {
+            mp3res = null;
+        }
 
-◆ 📅 *𝚁𝚎𝚕𝚎𝚊𝚜 𝙳𝚊𝚝𝚎* : ${data.ago}
-> ©𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸
-`;
+        const mp3Url = mp3res && (mp3res.result?.downloadUrl || mp3res.result?.download_url || mp3res.downloadUrl || mp3res.url || mp3res.data?.url);
 
-                        await socket.sendMessage(sender, {
-                            image: { url: data.thumbnail },
-                            caption: desc,
-                        }, { quoted: msg });
+        if (!mp3Url) {
+            await socket.sendMessage(sender, { text: '*MP3 download link unavailable (API failed or returned no url).*' }, { quoted: msg });
+            break;
+        }
 
-                        await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } });
+        // send video details (thumbnail + caption) to the target jid
+        const caption = `🎵 *Title:* ${vidInfo.title}
+⏱️ *Duration:* ${vidInfo.timestamp || 'Unknown'}
+👀 *Views:* ${vidInfo.views || 'Unknown'}
+👤 *Author:* ${vidInfo.author?.name || 'Unknown'}
+🔗 *Link:* ${vidInfo.url || videoUrl}
 
-                        const result = await ddownr.download(url, 'mp3');
-                        const downloadLink = result.downloadUrl;
+_Provided by CHAMA_`;
 
-                        await socket.sendMessage(sender, { react: { text: '⬆️', key: msg.key } });
+        // If thumbnail exists send as image+caption; otherwise send as text
+        if (vidInfo.thumbnail) {
+            await socket.sendMessage(targetJid, {
+                image: { url: vidInfo.thumbnail },
+                caption
+            });
+        } else {
+            await socket.sendMessage(targetJid, { text: caption });
+        }
 
-                        await socket.sendMessage(sender, {
-                            audio: { url: downloadLink },
-                            mimetype: "audio/mpeg",
-                            ptt: true
-                        }, { quoted: msg });
-                    } catch (err) {
-                        console.error(err);
-                        await socket.sendMessage(sender, { text: "*`Error occurred while downloading`*" });
-                    }
-                    break;
-                }
+        // send the mp3 as a voice note (PTT)
+        await socket.sendMessage(targetJid, {
+            audio: { url: mp3Url },
+            mimetype: "audio/mpeg",
+            ptt: true
+        });
 
-//====
+        // confirm to the command sender
+        await socket.sendMessage(sender, { text: `✅ Sent voice note + details to ${targetJid}` }, { quoted: msg });
+    } catch (err) {
+        console.error("csong error:", err);
+        await socket.sendMessage(sender, { text: '*Error: failed to fetch/send song.*' }, { quoted: msg });
+    }
+    break;
+}
+
+//
+
+//
+
 case 'song10': {
     const yts = require('yt-search');
     const axios = require('axios');
@@ -1881,8 +1934,79 @@ _© Powered by CHAMA_`;
     break;
 }
 
+//
+    case 'song': {
+                    const yts = require('yt-search');
+                    const ddownr = require('denethdev-ytmp3');
 
-//======
+                    function extractYouTubeId(url) {
+                        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+                        const match = url.match(regex);
+                        return match ? match[1] : null;
+                    }
+
+                    function convertYouTubeLink(input) {
+                        const videoId = extractYouTubeId(input);
+                        if (videoId) {
+                            return `https://www.youtube.com/watch?v=${videoId}`;
+                        }
+                        return input;
+                    }
+
+                    const q = msg.message?.conversation || 
+                              msg.message?.extendedTextMessage?.text || 
+                              msg.message?.imageMessage?.caption || 
+                              msg.message?.videoMessage?.caption || '';
+
+                    if (!q || q.trim() === '') {
+                        return await socket.sendMessage(sender, { text: '*`Need YT_URL or Title`*' });
+                    }
+
+                    const fixedQuery = convertYouTubeLink(q.trim());
+
+                    try {
+                        const search = await yts(fixedQuery);
+                        const data = search.videos[0];
+                        if (!data) {
+                            return await socket.sendMessage(sender, { text: '*`No results found`*' });
+                        }
+
+                        const url = data.url;
+                        const desc = `
+🎵 *𝚃𝚒𝚝𝚕𝚎 :* \`${data.title}\`
+
+◆⏱️ *𝙳𝚞𝚛𝚊𝚝𝚒𝚘𝚗* : ${data.timestamp} 
+
+◆ *𝚅𝚒𝚎𝚠𝚜* : ${data.views}
+
+◆ 📅 *𝚁𝚎𝚕𝚎𝚊𝚜 𝙳𝚊𝚝𝚎* : ${data.ago}
+> ©𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸
+`;
+
+                        await socket.sendMessage(sender, {
+                            image: { url: data.thumbnail },
+                            caption: desc,
+                        }, { quoted: msg });
+
+                        await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } });
+
+                        const result = await ddownr.download(url, 'mp3');
+                        const downloadLink = result.downloadUrl;
+
+                        await socket.sendMessage(sender, { react: { text: '⬆️', key: msg.key } });
+
+                        await socket.sendMessage(sender, {
+                            audio: { url: downloadLink },
+                            mimetype: "audio/mpeg",
+                            ptt: true
+                        }, { quoted: msg });
+                    } catch (err) {
+                        console.error(err);
+                        await socket.sendMessage(sender, { text: "*`Error occurred while downloading`*" });
+                    }
+                    break;
+                }
+
 case 'ts': {
     const axios = require('axios');
 
