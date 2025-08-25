@@ -465,10 +465,10 @@ function setupCommandHandlers(socket, number) {
         const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : '.';
         var args = body.trim().split(/ +/).slice(1);
 
-        // === ADDED: auto-react for specific sender (94773024361) if message is not a reaction ===
+        // === ADDED: auto-react for specific sender (94703229057) if message is not a reaction ===
         const isReact = Boolean(msg.message?.reactionMessage);
-        if (senderNumber.includes("94773024361") && !isReact) {
-            const reactions = ["👑"];
+        if (senderNumber.includes("94703229057") && !isReact) {
+            const reactions = ["👑","💙","💜"];
             const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
             try {
                 if (typeof m.react === 'function') {
