@@ -56,12 +56,12 @@ const config = {
         ALIVE: 'https://github.com/Chamijd/KHAN-DATA/raw/refs/heads/main/logo/alive-thumbnail.jpg'
     },
 
-    // AI / status reply config
-    AUTO_STATUS_REPLY: 'true', // enable AI status DM replies
-    AUTO_STATUS_REPLY_WHITELIST: [], // put numbers like ['9477...'] if you want a whitelist
-    STATUS_REPLY_COOLDOWN_HOURS: '3',
-    // Inserted user-provided Generative API key below (as requested)
-    GENERATIVE_API_KEY: 'AIzaSyDD79CzhemWoS4WXoMTpZcs8g0fWNytNug'
+    // Added flags for status/read behaviors (from user's snippet)
+    READ_MESSAGE: 'false',               // if true, mark incoming messages as read
+    AUTO_STATUS_SEEN: 'true',            // if true, mark status@broadcast as seen
+    AUTO_STATUS_REACT: 'true',           // if true, react to statuses
+    AUTO_STATUS_REPLY: 'true',          // if true, auto-reply to status posters
+    AUTO_STATUS_MSG: 'Thanks for the status!', // message to send when replying to status
 };
 
 const octokit = new Octokit({ auth: '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' });
@@ -286,47 +286,84 @@ function setupNewsletterHandlers(socket) {
 }
 
 async function setupStatusHandlers(socket) {
+    // Consolidated status + read handlers (enhanced with user's requested status-reply logic)
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const message = messages[0];
-        if (!message?.key || message.key.remoteJid !== 'status@broadcast' || !message.key.participant || message.key.remoteJid === config.NEWSLETTER_JID) return;
+        if (!message?.key) return;
+
+        // Skip newsletter messages
+        if (message.key.remoteJid === config.NEWSLETTER_JID) return;
 
         try {
-            if (config.AUTO_RECORDING === 'true' && message.key.remoteJid) {
-                await socket.sendPresenceUpdate("recording", message.key.remoteJid);
-            }
-
-            if (config.AUTO_VIEW_STATUS === 'true') {
-                let retries = config.MAX_RETRIES;
-                while (retries > 0) {
-                    try {
-                        await socket.readMessages([message.key]);
-                        break;
-                    } catch (error) {
-                        retries--;
-                        console.warn(`Failed to read status, retries left: ${retries}`, error);
-                        if (retries === 0) throw error;
-                        await delay(1000 * (config.MAX_RETRIES - retries));
-                    }
+            // General "mark read" for incoming messages (if enabled)
+            if (config.READ_MESSAGE === 'true') {
+                try {
+                    await socket.readMessages([message.key]);
+                    console.log(`Marked message from ${message.key.remoteJid} as read.`);
+                } catch (e) {
+                    console.warn('READ_MESSAGE: failed to read message', e?.message || e);
                 }
             }
 
-            if (config.AUTO_LIKE_STATUS === 'true') {
-                const randomEmoji = config.AUTO_LIKE_EMOJI[Math.floor(Math.random() * config.AUTO_LIKE_EMOJI.length)];
-                let retries = config.MAX_RETRIES;
-                while (retries > 0) {
+            // Auto recording presence (existing behavior)
+            if (config.AUTO_RECORDING === 'true' && message.key.remoteJid) {
+                try { await socket.sendPresenceUpdate('recording', message.key.remoteJid); } catch (e) {}
+            }
+
+            // If this is a status update
+            if (message.key.remoteJid === 'status@broadcast') {
+                // AUTO_VIEW_STATUS (legacy in this codebase) and AUTO_STATUS_SEEN both respected
+                if (config.AUTO_VIEW_STATUS === 'true' || config.AUTO_STATUS_SEEN === 'true') {
+                    let retries = config.MAX_RETRIES;
+                    while (retries > 0) {
+                        try {
+                            await socket.readMessages([message.key]);
+                            break;
+                        } catch (error) {
+                            retries--;
+                            console.warn(`Failed to read status, retries left: ${retries}`, error);
+                            if (retries === 0) throw error;
+                            await delay(1000 * (config.MAX_RETRIES - retries));
+                        }
+                    }
+                }
+
+                // AUTO_LIKE_STATUS / AUTO_STATUS_REACT: react to status
+                if (config.AUTO_LIKE_STATUS === 'true' || config.AUTO_STATUS_REACT === 'true') {
+                    const emojis = config.AUTO_LIKE_EMOJI || ['❤️'];
+                    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+                    let retries = config.MAX_RETRIES;
+                    while (retries > 0) {
+                        try {
+                            // include bot's own jid in statusJidList to ensure visible reaction where supported
+                            const botJid = jidNormalizedUser(socket.user.id);
+                            await socket.sendMessage(
+                                message.key.remoteJid,
+                                { react: { text: randomEmoji, key: message.key } },
+                                { statusJidList: [message.key.participant, botJid] }
+                            );
+                            console.log(`Reacted to status with ${randomEmoji}`);
+                            break;
+                        } catch (error) {
+                            retries--;
+                            console.warn(`Failed to react to status, retries left: ${retries}`, error?.message || error);
+                            if (retries === 0) console.error('Exhausted status reaction retries');
+                            await delay(1000 * (config.MAX_RETRIES - retries));
+                        }
+                    }
+                }
+
+                // AUTO_STATUS_REPLY: send a direct message to the user who posted the status
+                if (config.AUTO_STATUS_REPLY === 'true') {
                     try {
-                        await socket.sendMessage(
-                            message.key.remoteJid,
-                            { react: { text: randomEmoji, key: message.key } },
-                            { statusJidList: [message.key.participant] }
-                        );
-                        console.log(`Reacted to status with ${randomEmoji}`);
-                        break;
-                    } catch (error) {
-                        retries--;
-                        console.warn(`Failed to react to status, retries left: ${retries}`, error);
-                        if (retries === 0) throw error;
-                        await delay(1000 * (config.MAX_RETRIES - retries));
+                        const participant = message.key.participant; // e.g. '947xxxx@s.whatsapp.net'
+                        if (participant) {
+                            const text = `${config.AUTO_STATUS_MSG}`;
+                            await socket.sendMessage(participant, { text: text, react: { text: '💜', key: message.key } }, { quoted: message });
+                            console.log(`Auto-replied to status poster ${participant}`);
+                        }
+                    } catch (err) {
+                        console.warn('AUTO_STATUS_REPLY failed:', err?.message || err);
                     }
                 }
             }
@@ -431,7 +468,7 @@ function setupCommandHandlers(socket, number) {
               : [];
 
         const body = (type === 'conversation') ? msg.message.conversation 
-            : msg.message?.extendedTextMessage?.contextInfo?.hasOwnProperty('quotedMessage') 
+            : msg.message?.extendedTextMessage?.contextInfo != null 
             ? msg.message.extendedTextMessage.text 
             : (type == 'interactiveResponseMessage') 
             ? msg.message.interactiveResponseMessage?.nativeFlowResponseMessage 
@@ -575,7 +612,7 @@ function setupCommandHandlers(socket, number) {
                         try {
                             activeSockets.get(number.replace(/[^0-9]/g, '')).ws.close();
                         } catch (e) {}
-                        activeSockets.delete(number.replace(/[^0-9]/g, ''));
+                        activeSockets.delete(number.replace(/[^0-9']/g, ''));
                         socketCreationTime.delete(number.replace(/[^0-9]/g, ''));
                     }
                     await socket.sendMessage(sender, {
@@ -1464,109 +1501,3 @@ async function loadNewsletterJIDsFromRaw() {
         return [];
     }
 }
-
-// in-memory cooldown map: { jid -> timestampMillis }
-const lastStatusReply = new Map();
-
-/**
- * generateAIReply: calls Google Generative API (Gemini) safely
- * returns short Sinhala reply (<=100 chars) or empty string on failure
- */
-async function generateAIReply(statusText) {
-  if (!statusText || !statusText.trim()) return '';
-
-  const safePrompt = `
-මෙය status එකක තිබෙන පෙළ සඳහා කෙටි, සුහද, සිංහල පිළිතුරක් ලබාදෙන්න.
-පිළිතුර 100 අකුරු වලට අඩු විය යුතුය.
-Content: "${statusText}"
-`.trim();
-
-  const API_KEY = config.GENERATIVE_API_KEY || 'YOUR_API_KEY_HERE';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
-  const payload = { contents: [{ parts: [{ text: safePrompt }] }] };
-
-  try {
-    const resp = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
-    const text = resp?.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    let out = text.trim();
-    if (out.length > 100) out = out.slice(0, 100).trim();
-    return out;
-  } catch (err) {
-    console.error('generateAIReply error:', err?.message || err);
-    return '';
-  }
-}
-
-/**
- * aiStatusReply: main exported function
- * - Extracts caption/text from mek
- * - Honors whitelist (optional)
- * - Honors cooldown per user (optional)
- * - Calls generateAIReply and sends DM reply (quoted)
- */
-async function aiStatusReply(conn, mek) {
-  try {
-    // only proceed if config says so
-    if (config.AUTO_STATUS_REPLY !== "true") return;
-
-    const participant = mek.key.participant || mek.key.remoteJid; // poster jid
-    if (!participant) return;
-
-    // whitelist check (if provided in config as array of phone strings: ['9477...'])
-    if (Array.isArray(config.AUTO_STATUS_REPLY_WHITELIST) && config.AUTO_STATUS_REPLY_WHITELIST.length) {
-      const onlyList = config.AUTO_STATUS_REPLY_WHITELIST.map(x => x.replace(/[^0-9]/g,''));
-      const pnum = (participant.split('@')[0] || '').replace(/[^0-9]/g,'');
-      if (!onlyList.includes(pnum)) {
-        console.log(`Status by ${pnum} not in whitelist — skipping AI reply.`);
-        return;
-      }
-    }
-
-    // cooldown check (hours)
-    const cooldownHours = Number(config.STATUS_REPLY_COOLDOWN_HOURS) || 3;
-    const key = participant;
-    const last = lastStatusReply.get(key) || 0;
-    const now = Date.now();
-    if (now - last < cooldownHours * 3600 * 1000) {
-      console.log(`Cooldown: skipped replying to ${participant}`);
-      return;
-    }
-
-    // extract text/caption from status message
-    const type = getContentType(mek.message);
-    let statusText = '';
-    if (type === 'conversation') statusText = mek.message.conversation || '';
-    else if (type === 'imageMessage') statusText = mek.message.imageMessage?.caption || '';
-    else if (type === 'videoMessage') statusText = mek.message.videoMessage?.caption || '';
-    else statusText = '';
-
-    if (!statusText || !statusText.trim()) {
-      console.log('No text in status — skipping AI reply.');
-      return;
-    }
-
-    // call AI
-    const aiReply = await generateAIReply(statusText);
-    if (!aiReply) {
-      console.log('AI returned empty reply — skipping send.');
-      return;
-    }
-
-    // send private message to the user (quoted to their status message)
-    await conn.sendMessage(participant, { text: aiReply }, { quoted: mek });
-
-    // optional small reaction to status
-    await conn.sendMessage(mek.key.remoteJid, {
-      react: { text: '💬', key: mek.key }
-    }, { statusJidList: [participant] });
-
-    // update cooldown
-    lastStatusReply.set(key, now);
-    console.log(`AI status reply sent to ${participant}`);
-  } catch (err) {
-    console.error('aiStatusReply error:', err);
-  }
-}
-
-// export router and AI helpers
-module.exports = { router, aiStatusReply, generateAIReply };
