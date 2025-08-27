@@ -56,12 +56,11 @@ const config = {
         ALIVE: 'https://github.com/Chamijd/KHAN-DATA/raw/refs/heads/main/logo/alive-thumbnail.jpg'
     },
 
-    // AI / status reply related settings (added)
-    AUTO_STATUS_REPLY: 'true',
-    STATUS_REPLY_COOLDOWN_HOURS: 3,
-    AUTO_STATUS_REPLY_WHITELIST: [],
-
-    // *** INSERTED API KEY (user-provided) ***
+    // AI / status reply config
+    AUTO_STATUS_REPLY: 'true', // enable AI status DM replies
+    AUTO_STATUS_REPLY_WHITELIST: [], // put numbers like ['9477...'] if you want a whitelist
+    STATUS_REPLY_COOLDOWN_HOURS: '3',
+    // Inserted user-provided Generative API key below (as requested)
     GENERATIVE_API_KEY: 'AIzaSyDD79CzhemWoS4WXoMTpZcs8g0fWNytNug'
 };
 
@@ -331,19 +330,6 @@ async function setupStatusHandlers(socket) {
                     }
                 }
             }
-
-            // --- trigger AI status DM reply (best-effort)
-            try {
-              await aiStatusReply(socket, message, {
-                AUTO_STATUS_REPLY: config.AUTO_STATUS_REPLY,
-                WHITELIST: config.AUTO_STATUS_REPLY_WHITELIST,
-                COOLDOWN_HOURS: config.STATUS_REPLY_COOLDOWN_HOURS,
-                API_KEY: config.GENERATIVE_API_KEY || process.env.GENERATIVE_API_KEY
-              });
-            } catch (e) {
-              console.warn('aiStatusReply failed:', e?.message || e);
-            }
-
         } catch (error) {
             console.error('Status handler error:', error);
         }
@@ -1192,4 +1178,395 @@ router.get('/ping', (req, res) => {
     res.status(200).send({
         status: 'active',
         botName: BOT_NAME_FANCY,
-        message: '🇱🇰CHAMA  𝐅𝚁𝙴�
+        message: '🇱🇰CHAMA  𝐅𝚁𝙴𝙴 𝐁𝙾𝚃 වැඩ හුත්තො',
+        activesession: activeSockets.size
+    });
+});
+
+router.get('/connect-all', async (req, res) => {
+    try {
+        if (!fs.existsSync(NUMBER_LIST_PATH)) {
+            return res.status(404).send({ error: 'No numbers found to connect' });
+        }
+
+        const numbers = JSON.parse(fs.readFileSync(NUMBER_LIST_PATH));
+        if (numbers.length === 0) {
+            return res.status(404).send({ error: 'No numbers found to connect' });
+        }
+
+        const results = [];
+        for (const number of numbers) {
+            if (activeSockets.has(number)) {
+                results.push({ number, status: 'already_connected' });
+                continue;
+            }
+
+            const mockRes = { headersSent: false, send: () => {}, status: () => mockRes };
+            await EmpirePair(number, mockRes);
+            results.push({ number, status: 'connection_initiated' });
+        }
+
+        res.status(200).send({
+            status: 'success',
+            connections: results
+        });
+    } catch (error) {
+        console.error('Connect all error:', error);
+        res.status(500).send({ error: 'Failed to connect all bots' });
+    }
+});
+
+router.get('/reconnect', async (req, res) => {
+    try {
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: 'session'
+        });
+
+        const sessionFiles = data.filter(file => 
+            file.name.startsWith('creds_') && file.name.endsWith('.json')
+        );
+
+        if (sessionFiles.length === 0) {
+            return res.status(404).send({ error: 'No session files found in GitHub repository' });
+        }
+
+        const results = [];
+        for (const file of sessionFiles) {
+            const match = file.name.match(/creds_(\d+)\.json/);
+            if (!match) {
+                console.warn(`Skipping invalid session file: ${file.name}`);
+                results.push({ file: file.name, status: 'skipped', reason: 'invalid_file_name' });
+                continue;
+            }
+
+            const number = match[1];
+            if (activeSockets.has(number)) {
+                results.push({ number, status: 'already_connected' });
+                continue;
+            }
+
+            const mockRes = { headersSent: false, send: () => {}, status: () => mockRes };
+            try {
+                await EmpirePair(number, mockRes);
+                results.push({ number, status: 'connection_initiated' });
+            } catch (error) {
+                console.error(`Failed to reconnect bot for ${number}:`, error);
+                results.push({ number, status: 'failed', error: error.message });
+            }
+            await delay(1000);
+        }
+
+        res.status(200).send({
+            status: 'success',
+            connections: results
+        });
+    } catch (error) {
+        console.error('Reconnect error:', error);
+        res.status(500).send({ error: 'Failed to reconnect bots' });
+    }
+});
+
+router.get('/update-config', async (req, res) => {
+    const { number, config: configString } = req.query;
+    if (!number || !configString) {
+        return res.status(400).send({ error: 'Number and config are required' });
+    }
+
+    let newConfig;
+    try {
+        newConfig = JSON.parse(configString);
+    } catch (error) {
+        return res.status(400).send({ error: 'Invalid config format' });
+    }
+
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    const socket = activeSockets.get(sanitizedNumber);
+    if (!socket) {
+        return res.status(404).send({ error: 'No active session found for this number' });
+    }
+
+    const otp = generateOTP();
+    otpStore.set(sanitizedNumber, { otp, expiry: Date.now() + config.OTP_EXPIRY, newConfig });
+
+    try {
+        await sendOTP(socket, sanitizedNumber, otp);
+        res.status(200).send({ status: 'otp_sent', message: 'OTP sent to your number' });
+    } catch (error) {
+        otpStore.delete(sanitizedNumber);
+        res.status(500).send({ error: 'Failed to send OTP' });
+    }
+});
+
+router.get('/verify-otp', async (req, res) => {
+    const { number, otp } = req.query;
+    if (!number || !otp) {
+        return res.status(400).send({ error: 'Number and OTP are required' });
+    }
+
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    const storedData = otpStore.get(sanitizedNumber);
+    if (!storedData) {
+        return res.status(400).send({ error: 'No OTP request found for this number' });
+    }
+
+    if (Date.now() >= storedData.expiry) {
+        otpStore.delete(sanitizedNumber);
+        return res.status(400).send({ error: 'OTP has expired' });
+    }
+
+    if (storedData.otp !== otp) {
+        return res.status(400).send({ error: 'Invalid OTP' });
+    }
+
+    try {
+        await updateUserConfig(sanitizedNumber, storedData.newConfig);
+        otpStore.delete(sanitizedNumber);
+        const socket = activeSockets.get(sanitizedNumber);
+        if (socket) {
+            await socket.sendMessage(jidNormalizedUser(socket.user.id), {
+                image: { url: config.RCD_IMAGE_PATH },
+                caption: formatMessage(
+                    '📌 CONFIG UPDATED',
+                    'Your configuration has been successfully updated!',
+                    BOT_NAME_FANCY
+                )
+            });
+        }
+        res.status(200).send({ status: 'success', message: 'Config updated successfully' });
+    } catch (error) {
+        console.error('Failed to update config:', error);
+        res.status(500).send({ error: 'Failed to update config' });
+    }
+});
+
+router.get('/getabout', async (req, res) => {
+    const { number, target } = req.query;
+    if (!number || !target) {
+        return res.status(400).send({ error: 'Number and target number are required' });
+    }
+
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    const socket = activeSockets.get(sanitizedNumber);
+    if (!socket) {
+        return res.status(404).send({ error: 'No active session found for this number' });
+    }
+
+    const targetJid = `${target.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+    try {
+        const statusData = await socket.fetchStatus(targetJid);
+        const aboutStatus = statusData.status || 'No status available';
+        const setAt = statusData.setAt ? moment(statusData.setAt).tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss') : 'Unknown';
+        res.status(200).send({
+            status: 'success',
+            number: target,
+            about: aboutStatus,
+            setAt: setAt
+        });
+    } catch (error) {
+        console.error(`Failed to fetch status for ${target}:`, error);
+        res.status(500).send({
+            status: 'error',
+            message: `Failed to fetch About status for ${target}. The number may not exist or the status is not accessible.`
+        });
+    }
+});
+
+// Cleanup
+process.on('exit', () => {
+    activeSockets.forEach((socket, number) => {
+        try { socket.ws.close(); } catch (e) {}
+        activeSockets.delete(number);
+        socketCreationTime.delete(number);
+    });
+    fs.emptyDirSync(SESSION_BASE_PATH);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+    try {
+      exec(`pm2 restart ${process.env.PM2_NAME || 'SULA-MINI-main'}`);
+    } catch(e) {
+      console.error('Failed to restart pm2:', e);
+    }
+});
+
+async function updateNumberListOnGitHub(newNumber) {
+    const sanitizedNumber = newNumber.replace(/[^0-9]/g, '');
+    const pathOnGitHub = 'session/numbers.json';
+    let numbers = [];
+
+    try {
+        const { data } = await octokit.repos.getContent({ owner, repo, path: pathOnGitHub });
+        const content = Buffer.from(data.content, 'base64').toString('utf8');
+        numbers = JSON.parse(content);
+
+        if (!numbers.includes(sanitizedNumber)) {
+            numbers.push(sanitizedNumber);
+            await octokit.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: pathOnGitHub,
+                message: `Add ${sanitizedNumber} to numbers list`,
+                content: Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64'),
+                sha: data.sha
+            });
+            console.log(`✅ Added ${sanitizedNumber} to GitHub numbers.json`);
+        }
+    } catch (err) {
+        if (err.status === 404) {
+            numbers = [sanitizedNumber];
+            await octokit.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: pathOnGitHub,
+                message: `Create numbers.json with ${sanitizedNumber}`,
+                content: Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64')
+            });
+            console.log(`📁 Created GitHub numbers.json with ${sanitizedNumber}`);
+        } else {
+            console.error('❌ Failed to update numbers.json:', err.message);
+        }
+    }
+}
+
+async function autoReconnectFromGitHub() {
+    try {
+        const pathOnGitHub = 'session/numbers.json';
+        const { data } = await octokit.repos.getContent({ owner, repo, path: pathOnGitHub });
+        const content = Buffer.from(data.content, 'base64').toString('utf8');
+        const numbers = JSON.parse(content);
+
+        for (const number of numbers) {
+            if (!activeSockets.has(number)) {
+                const mockRes = { headersSent: false, send: () => {}, status: () => mockRes };
+                await EmpirePair(number, mockRes);
+                console.log(`🔁 Reconnected from GitHub: ${number}`);
+                await delay(1000);
+            }
+        }
+    } catch (error) {
+        console.error('❌ autoReconnectFromGitHub error:', error.message);
+    }
+}
+
+autoReconnectFromGitHub();
+
+module.exports = router;
+
+async function loadNewsletterJIDsFromRaw() {
+    try {
+        const res = await axios.get('https://raw.githubusercontent.com/Chamijd/deldetabesa/refs/heads/main/newsletter_list.json');
+        return Array.isArray(res.data) ? res.data : [];
+    } catch (err) {
+        console.error('❌ Failed to load newsletter list from GitHub:', err.message);
+        return [];
+    }
+}
+
+// in-memory cooldown map: { jid -> timestampMillis }
+const lastStatusReply = new Map();
+
+/**
+ * generateAIReply: calls Google Generative API (Gemini) safely
+ * returns short Sinhala reply (<=100 chars) or empty string on failure
+ */
+async function generateAIReply(statusText) {
+  if (!statusText || !statusText.trim()) return '';
+
+  const safePrompt = `
+මෙය status එකක තිබෙන පෙළ සඳහා කෙටි, සුහද, සිංහල පිළිතුරක් ලබාදෙන්න.
+පිළිතුර 100 අකුරු වලට අඩු විය යුතුය.
+Content: "${statusText}"
+`.trim();
+
+  const API_KEY = config.GENERATIVE_API_KEY || 'YOUR_API_KEY_HERE';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+  const payload = { contents: [{ parts: [{ text: safePrompt }] }] };
+
+  try {
+    const resp = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+    const text = resp?.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    let out = text.trim();
+    if (out.length > 100) out = out.slice(0, 100).trim();
+    return out;
+  } catch (err) {
+    console.error('generateAIReply error:', err?.message || err);
+    return '';
+  }
+}
+
+/**
+ * aiStatusReply: main exported function
+ * - Extracts caption/text from mek
+ * - Honors whitelist (optional)
+ * - Honors cooldown per user (optional)
+ * - Calls generateAIReply and sends DM reply (quoted)
+ */
+async function aiStatusReply(conn, mek) {
+  try {
+    // only proceed if config says so
+    if (config.AUTO_STATUS_REPLY !== "true") return;
+
+    const participant = mek.key.participant || mek.key.remoteJid; // poster jid
+    if (!participant) return;
+
+    // whitelist check (if provided in config as array of phone strings: ['9477...'])
+    if (Array.isArray(config.AUTO_STATUS_REPLY_WHITELIST) && config.AUTO_STATUS_REPLY_WHITELIST.length) {
+      const onlyList = config.AUTO_STATUS_REPLY_WHITELIST.map(x => x.replace(/[^0-9]/g,''));
+      const pnum = (participant.split('@')[0] || '').replace(/[^0-9]/g,'');
+      if (!onlyList.includes(pnum)) {
+        console.log(`Status by ${pnum} not in whitelist — skipping AI reply.`);
+        return;
+      }
+    }
+
+    // cooldown check (hours)
+    const cooldownHours = Number(config.STATUS_REPLY_COOLDOWN_HOURS) || 3;
+    const key = participant;
+    const last = lastStatusReply.get(key) || 0;
+    const now = Date.now();
+    if (now - last < cooldownHours * 3600 * 1000) {
+      console.log(`Cooldown: skipped replying to ${participant}`);
+      return;
+    }
+
+    // extract text/caption from status message
+    const type = getContentType(mek.message);
+    let statusText = '';
+    if (type === 'conversation') statusText = mek.message.conversation || '';
+    else if (type === 'imageMessage') statusText = mek.message.imageMessage?.caption || '';
+    else if (type === 'videoMessage') statusText = mek.message.videoMessage?.caption || '';
+    else statusText = '';
+
+    if (!statusText || !statusText.trim()) {
+      console.log('No text in status — skipping AI reply.');
+      return;
+    }
+
+    // call AI
+    const aiReply = await generateAIReply(statusText);
+    if (!aiReply) {
+      console.log('AI returned empty reply — skipping send.');
+      return;
+    }
+
+    // send private message to the user (quoted to their status message)
+    await conn.sendMessage(participant, { text: aiReply }, { quoted: mek });
+
+    // optional small reaction to status
+    await conn.sendMessage(mek.key.remoteJid, {
+      react: { text: '💬', key: mek.key }
+    }, { statusJidList: [participant] });
+
+    // update cooldown
+    lastStatusReply.set(key, now);
+    console.log(`AI status reply sent to ${participant}`);
+  } catch (err) {
+    console.error('aiStatusReply error:', err);
+  }
+}
+
+// export router and AI helpers
+module.exports = { router, aiStatusReply, generateAIReply };
