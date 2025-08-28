@@ -3350,7 +3350,7 @@ case 'send': {
     }
 });
 break;
-
+}
 
 case 'ai':
 case 'chat':
