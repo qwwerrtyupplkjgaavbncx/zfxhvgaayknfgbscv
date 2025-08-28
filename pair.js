@@ -3312,7 +3312,47 @@ case 'tiktokdl': {
   }
 
   break;
-       }case 'ai':
+       }
+
+
+case 'send': {
+    try {
+        if (!m.quoted) return await sock.sendMessage(from, { text: '❌ Please reply to a status to save it.' });
+        
+        const quotedMsg = m.quoted;
+        const type = Object.keys(quotedMsg.message)[0];
+
+        if (type !== 'imageMessage' && type !== 'videoMessage') {
+            return await sock.sendMessage(from, { text: '❌ Only image or video status can be saved!' });
+        }
+
+        const buffer = await sock.downloadMediaMessage(quotedMsg);
+
+        let fileName;
+        if (type === 'imageMessage') {
+            fileName = `status_${Date.now()}.jpg`;
+        } else if (type === 'videoMessage') {
+            fileName = `status_${Date.now()}.mp4`;
+        }
+
+        await fs.writeFileSync(`./downloads/${fileName}`, buffer);
+
+        await sock.sendMessage(from, { 
+            document: fs.readFileSync(`./downloads/${fileName}`), 
+            fileName: fileName,
+            mimetype: type === 'imageMessage' ? 'image/jpeg' : 'video/mp4',
+            caption: '✅ Status saved successfully!\n\n𝗖𝗛𝗔𝗠𝗔 𝗠𝗜𝗡𝗜'
+        });
+
+    } catch (error) {
+        console.log(error);
+        await sock.sendMessage(from, { text: '❌ Failed to save status!' });
+    }
+});
+break;
+
+
+case 'ai':
 case 'chat':
 case 'gpt': {
     try {
