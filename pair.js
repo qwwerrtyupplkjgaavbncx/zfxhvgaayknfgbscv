@@ -3314,43 +3314,149 @@ case 'tiktokdl': {
   break;
        }
 
-
 case 'send': {
-    try {
-        if (!m.quoted) return await sock.sendMessage(from, { text: '❌ Please reply to a status to save it.' });
-        
-        const quotedMsg = m.quoted;
-        const type = Object.keys(quotedMsg.message)[0];
-
-        if (type !== 'imageMessage' && type !== 'videoMessage') {
-            return await sock.sendMessage(from, { text: '❌ Only image or video status can be saved!' });
-        }
-
-        const buffer = await sock.downloadMediaMessage(quotedMsg);
-
-        let fileName;
-        if (type === 'imageMessage') {
-            fileName = `status_${Date.now()}.jpg`;
-        } else if (type === 'videoMessage') {
-            fileName = `status_${Date.now()}.mp4`;
-        }
-
-        await fs.writeFileSync(`./downloads/${fileName}`, buffer);
-
-        await sock.sendMessage(from, { 
-            document: fs.readFileSync(`./downloads/${fileName}`), 
-            fileName: fileName,
-            mimetype: type === 'imageMessage' ? 'image/jpeg' : 'video/mp4',
-            caption: '✅ Status saved successfully!\n\n𝗖𝗛𝗔𝗠𝗔 𝗠𝗜𝗡𝗜'
-        });
-
-    } catch (error) {
-        console.log(error);
-        await sock.sendMessage(from, { text: '❌ Failed to save status!' });
+  try {
+    // ensure quoted exists
+    if (!m.quoted) {
+      return await sock.sendMessage(from, { text: '❌ Please reply to a status/message to save/forward.' }, { quoted: m });
     }
-});
-break;
+
+    const quotedMsg = m.quoted;
+    // robustly determine message type
+    const type = quotedMsg.mtype || (quotedMsg.message ? Object.keys(quotedMsg.message)[0] : null);
+
+    if (!type) {
+      return await sock.sendMessage(from, { text: '❌ Could not determine quoted message type.' }, { quoted: m });
+    }
+
+    // helper to extract caption/text from different shapes
+    const getCaption = q => {
+      if (!q) return '';
+      if (q.text) return q.text;
+      if (q.caption) return q.caption;
+      if (q.message) {
+        const keys = Object.keys(q.message);
+        if (keys.length) {
+          const inner = q.message[keys[0]];
+          return inner && (inner.caption || inner.text) ? (inner.caption || inner.text) : '';
+        }
+      }
+      return '';
+    };
+    const caption = getCaption(quotedMsg) || '';
+
+    // download media (some wrappers return Buffer, others return stream)
+    let media = null;
+    if (typeof quotedMsg.download === 'function') {
+      media = await quotedMsg.download(); // common in some wrappers
+    } else if (typeof sock.downloadMediaMessage === 'function') {
+      // fallback to the lower-level download function (Baileys style)
+      media = await sock.downloadMediaMessage(quotedMsg);
+    } else if (typeof quotedMsg.downloadMedia === 'function') {
+      media = await quotedMsg.downloadMedia();
+    } else {
+      throw new Error('No downloadable function found on quoted message.');
+    }
+
+    if (!media) throw new Error('Downloaded media is empty or unavailable.');
+
+    // prepare downloads dir and filename
+    const fs = require('fs');
+    const path = require('path');
+    const { pipeline } = require('stream');
+    const { promisify } = require('util');
+    const pump = promisify(pipeline);
+
+    const downloadsDir = path.resolve('./downloads');
+    if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+
+    // determine mimetype and extension
+    const mimetype = quotedMsg.mimetype || (quotedMsg.message && (() => {
+      const k = Object.keys(quotedMsg.message)[0];
+      return quotedMsg.message[k] && quotedMsg.message[k].mimetype;
+    })()) || (type.includes('image') ? 'image/jpeg' : type.includes('video') ? 'video/mp4' : 'application/octet-stream');
+
+    const ext = mimetype && mimetype.includes('/') ? `.${mimetype.split('/')[1].split(';')[0]}` : (
+      type.includes('image') ? '.jpg' : type.includes('video') ? '.mp4' : '.bin'
+    );
+
+    const fileName = `saved_${Date.now()}${ext}`;
+    const filePath = path.join(downloadsDir, fileName);
+
+    // write media to disk (handle Buffer or Stream)
+    if (Buffer.isBuffer(media)) {
+      await fs.promises.writeFile(filePath, media);
+    } else if (media && typeof media.pipe === 'function') {
+      // media is a stream
+      await pump(media, fs.createWriteStream(filePath));
+    } else if (media && media.data && Buffer.isBuffer(media.data)) {
+      // some wrappers return an object with .data Buffer
+      await fs.promises.writeFile(filePath, media.data);
+      media = media.data;
+    } else {
+      // last resort: try to convert to Buffer if possible
+      throw new Error('Unsupported media type returned from download.');
+    }
+
+    // build message content to send back to user (use stream to avoid large memory)
+    let messageContent = {};
+    const readStream = fs.createReadStream(filePath);
+
+    if (type === 'imageMessage' || type === 'image') {
+      messageContent = {
+        image: readStream,
+        caption,
+        mimetype
+      };
+    } else if (type === 'videoMessage' || type === 'video') {
+      messageContent = {
+        video: readStream,
+        caption,
+        mimetype
+      };
+    } else if (type === 'audioMessage' || type === 'audio') {
+      // preserve ptt flag when available
+      const ptt = !!(quotedMsg.ptt || (quotedMsg.message && quotedMsg.message.audioMessage && quotedMsg.message.audioMessage.ptt));
+      messageContent = {
+        audio: readStream,
+        mimetype,
+        ptt
+      };
+    } else if (type === 'stickerMessage' || type === 'sticker') {
+      messageContent = {
+        sticker: readStream
+      };
+    } else if (type === 'documentMessage' || type === 'document') {
+      messageContent = {
+        document: readStream,
+        fileName: quotedMsg.fileName || fileName,
+        mimetype,
+        caption
+      };
+    } else {
+      // For safety, if it's an unknown media type, send as document
+      messageContent = {
+        document: readStream,
+        fileName,
+        mimetype,
+        caption
+      };
+    }
+
+    // send saved file back to user (quoted to original command message)
+    await sock.sendMessage(from, messageContent, { quoted: m });
+
+    // optionally inform user about saved path (uncomment if you want)
+    // await sock.sendMessage(from, { text: `✅ Saved to ${filePath}` }, { quoted: m });
+
+  } catch (error) {
+    console.error('case send error:', error);
+    await sock.sendMessage(from, { text: '❌ Failed to save/forward message:\n' + (error && error.message ? error.message : String(error)) }, { quoted: m });
+  }
 }
+break;
+
+
 
 case 'ai':
 case 'chat':
