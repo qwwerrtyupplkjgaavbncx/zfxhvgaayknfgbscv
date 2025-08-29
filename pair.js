@@ -57,8 +57,8 @@ const config = {
     }
 };
 
-const octokit = new Octokit({ auth: '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' });
-const owner = 'sulamadara117';
+const octokit = new Octokit({ auth: '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' });
+const owner = 'qwwerrtyupplkjgaavbncx';
 const repo = 'session';
 
 const activeSockets = new Map();
