@@ -2224,6 +2224,67 @@ _© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
 }
 
 //
+case 'vv2': {
+  try {
+    // reply කරන quoted message එක ගන්න
+    const ctx = msg.message?.extendedTextMessage?.contextInfo;
+    if (!ctx || !ctx.quotedMessage) {
+      await socket.sendMessage(from, { text: "*🍁 Please reply to a view once message!*" }, { quoted: msg });
+      break;
+    }
+
+    // quotedMessage unwrap (viewOnce / viewOnceMessageV2 support)
+    let quotedMsg = ctx.quotedMessage;
+    if (quotedMsg.viewOnceMessage && quotedMsg.viewOnceMessage.message) {
+      quotedMsg = quotedMsg.viewOnceMessage.message;
+    }
+    if (quotedMsg.viewOnceMessageV2?.message) {
+      quotedMsg = quotedMsg.viewOnceMessageV2.message;
+    }
+
+    // ensure supported type
+    const qType = getContentType(quotedMsg); // e.g. 'imageMessage', 'videoMessage', 'audioMessage'
+    if (!qType || !['imageMessage', 'videoMessage', 'audioMessage'].includes(qType)) {
+      await socket.sendMessage(from, { text: "❌ Only image, video, and audio messages are supported" }, { quoted: msg });
+      break;
+    }
+
+    // download content
+    const dlType = qType.replace(/Message$/i, '').toLowerCase(); // image|video|audio
+    const stream = await downloadContentFromMessage(quotedMsg, dlType);
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) {
+      buffer = Buffer.concat([buffer, chunk]);
+    }
+
+    // send back to the command invoker (nowsender)
+    if (qType === 'imageMessage') {
+      const caption = quotedMsg.imageMessage?.caption || '';
+      await socket.sendMessage(nowsender, {
+        image: buffer,
+        caption,
+        mimetype: quotedMsg.imageMessage?.mimetype || 'image/jpeg'
+      }, { quoted: msg });
+    } else if (qType === 'videoMessage') {
+      const caption = quotedMsg.videoMessage?.caption || '';
+      await socket.sendMessage(nowsender, {
+        video: buffer,
+        caption,
+        mimetype: quotedMsg.videoMessage?.mimetype || 'video/mp4'
+      }, { quoted: msg });
+    } else if (qType === 'audioMessage') {
+      await socket.sendMessage(nowsender, {
+        audio: buffer,
+        mimetype: quotedMsg.audioMessage?.mimetype || 'audio/mp4',
+        ptt: !!quotedMsg.audioMessage?.ptt
+      }, { quoted: msg });
+    }
+  } catch (error) {
+    console.error('vv2 error:', error);
+    await socket.sendMessage(from, { text: '❌ Error fetching vv message:\n' + (error?.message || String(error)) }, { quoted: msg });
+  }
+  break;
+}
 
 case 'song3': {
     const yts = require('yt-search');
