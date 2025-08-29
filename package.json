@@ -24,7 +24,7 @@
     "file-type": "21.0.0",
     "axios": "^1.2.5",
     "moment-timezone": "^0.6.0",
-    "megajs": "^7.0.0"
+    "megajs": "1.3.9"
   },
   "engines": {
     "node": ">=18.x"
