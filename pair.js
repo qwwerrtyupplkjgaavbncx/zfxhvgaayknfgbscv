@@ -2094,6 +2094,327 @@ _Provided by CHAMA_`;
 }
 
 //
+
+
+case 'nsong': {
+    const yts = require('yt-search');
+    const axios = require('axios');
+
+    // helper to extract/normalize youtube id/link
+    function extractYouTubeId(url) {
+        const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+        const match = url.match(regex);
+        return match ? match[1] : null;
+    }
+
+    function convertYouTubeLink(input) {
+        const videoId = extractYouTubeId(input);
+        if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+        return input;
+    }
+
+    // get query from various message types
+    const q = msg.message?.conversation ||
+              msg.message?.extendedTextMessage?.text ||
+              msg.message?.imageMessage?.caption ||
+              msg.message?.videoMessage?.caption || '';
+
+    if (!q || q.trim() === '') {
+        await socket.sendMessage(sender, { text: '*`Need YT_URL or Title`*' });
+        break;
+    }
+
+    const fixedQuery = convertYouTubeLink(q.trim());
+
+    try {
+        const search = await yts(fixedQuery);
+        const videos = (search.videos || []).slice(0, 8);
+
+        if (videos.length === 0) {
+            await socket.sendMessage(sender, { text: '*`No results found`*' });
+            break;
+        }
+
+        // PICK ONLY THE TOP (FIRST) RESULT
+        const vid = videos[0];
+
+        // prepare external APIs (keep same apis you had)
+        const mp4Api = `https://apis.davidcyriltech.my.id/download/ytmp4?url=${encodeURIComponent(vid.url)}`;
+        const mp3Api = `https://apis.davidcyriltech.my.id/youtube/mp3?url=${encodeURIComponent(vid.url)}`;
+
+        const caption = `🎵 *Title:* ${vid.title}
+⏱️ *Duration:* ${vid.timestamp}
+👀 *Views:* ${vid.views}
+👤 *Author:* ${vid.author.name}
+🔗 *Link:* ${vid.url}
+
+*Reply to this message (quote it) with a number to choose format:*
+1️⃣. 📄 MP3 as Document
+2️⃣. 🎧 MP3 as Audio
+3️⃣. 🎙 MP3 as Voice Note (PTT)
+4️⃣. 📄 MP4 as Document
+5️⃣. ▶ MP4 as Video
+
+Or use the buttons below to open menus.
+
+_© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
+
+        // MAIN MENU BUTTONS (unique ids)
+        const mainButtons = [
+            { buttonId: 'download_menu', buttonText: { displayText: "📥 DOWNLOAD MENU" }, type: 1 },
+            { buttonId: 'other_menu', buttonText: { displayText: "🌐 OTHER MENU" }, type: 1 },
+            { buttonId: 'owner_info', buttonText: { displayText: "👑 OWNER INFO" }, type: 1 },
+            { buttonId: 'ping', buttonText: { displayText: "⚡ PING" }, type: 1 },
+            { buttonId: 'bot_info', buttonText: { displayText: "🤖 BOT INFO" }, type: 1 }
+        ];
+
+        // send the single result card WITH buttons (quoted to original query message)
+        const resMsg = await socket.sendMessage(sender, {
+            image: { url: vid.thumbnail },
+            caption,
+            footer: 'CHAMA MINI BOT',
+            buttons: mainButtons,
+            headerType: 4
+        }, { quoted: msg });
+
+        // prefetch download info (background attempt)
+        let mp3res = null, mp4res = null;
+        (async () => {
+            try {
+                const [r1, r2] = await Promise.all([
+                    axios.get(mp3Api).then(r => r.data).catch(() => null),
+                    axios.get(mp4Api).then(r => r.data).catch(() => null)
+                ]);
+                mp3res = r1;
+                mp4res = r2;
+            } catch (e) {
+                // ignore; will try later on demand
+            }
+        })();
+
+        // helper to extract possible download urls from API response objects
+        function extractMp3Url(obj) {
+            if (!obj) return null;
+            return obj.result?.downloadUrl || obj.result?.download_url || obj.downloadUrl || obj.download_url || obj.url || null;
+        }
+        function extractMp4Url(obj) {
+            if (!obj) return null;
+            return obj.result?.download_url || obj.result?.downloadUrl || obj.download_url || obj.downloadUrl || obj.url || null;
+        }
+
+        // function to send download according to choice and quoted message (so it shows as reply)
+        async function doSendChoice(choice, quotedReceived) {
+            // ensure we have fetched the download info; if not, try now
+            if (!mp3res) {
+                try { mp3res = (await axios.get(mp3Api)).data; } catch (e) { mp3res = null; }
+            }
+            if (!mp4res) {
+                try { mp4res = (await axios.get(mp4Api)).data; } catch (e) { mp4res = null; }
+            }
+
+            const mp3Url = extractMp3Url(mp3res);
+            const mp4Url = extractMp4Url(mp4res);
+
+            switch (choice) {
+                case "1": // mp3 document
+                case "format_1":
+                    if (!mp3Url) return await socket.sendMessage(sender, { text: "*`MP3 download link unavailable`*" }, { quoted: quotedReceived });
+                    await socket.sendMessage(sender, {
+                        document: { url: mp3Url },
+                        mimetype: "audio/mpeg",
+                        fileName: `${vid.title}.mp3`
+                    }, { quoted: quotedReceived });
+                    break;
+
+                case "2":
+                case "format_2":
+                    if (!mp3Url) return await socket.sendMessage(sender, { text: "*`MP3 download link unavailable`*" }, { quoted: quotedReceived });
+                    await socket.sendMessage(sender, {
+                        audio: { url: mp3Url },
+                        mimetype: "audio/mpeg"
+                    }, { quoted: quotedReceived });
+                    break;
+
+                case "3":
+                case "format_3":
+                    if (!mp3Url) return await socket.sendMessage(sender, { text: "*`MP3 download link unavailable`*" }, { quoted: quotedReceived });
+                    await socket.sendMessage(sender, {
+                        audio: { url: mp3Url },
+                        mimetype: "audio/mpeg",
+                        ptt: true
+                    }, { quoted: quotedReceived });
+                    break;
+
+                case "4":
+                case "format_4":
+                    if (!mp4Url) return await socket.sendMessage(sender, { text: "*`MP4 download link unavailable`*" }, { quoted: quotedReceived });
+                    await socket.sendMessage(sender, {
+                        document: { url: mp4Url },
+                        mimetype: "video/mp4",
+                        fileName: `${vid.title}.mp4`
+                    }, { quoted: quotedReceived });
+                    break;
+
+                case "5":
+                case "format_5":
+                    if (!mp4Url) return await socket.sendMessage(sender, { text: "*`MP4 download link unavailable`*" }, { quoted: quotedReceived });
+                    await socket.sendMessage(sender, {
+                        video: { url: mp4Url },
+                        mimetype: "video/mp4"
+                    }, { quoted: quotedReceived });
+                    break;
+
+                default:
+                    await socket.sendMessage(sender, { text: "*Invalid option. Reply with a number from 1 to 5 (quote the card) or choose from the list.*" }, { quoted: quotedReceived });
+            }
+        }
+
+        // function to send the format selection as a LIST message (useful because buttons are limited)
+        async function sendFormatList() {
+            const listMsg = {
+                buttonText: "Choose Format",
+                description: `Choose download format for:\n${vid.title}`,
+                footerText: "Choose an option",
+                listType: 1,
+                sections: [
+                    {
+                        title: "Formats",
+                        rows: [
+                            { title: "1️⃣ MP3 as Document", rowId: "format_1", description: "MP3 as Document" },
+                            { title: "2️⃣ MP3 as Audio", rowId: "format_2", description: "MP3 as Audio" },
+                            { title: "3️⃣ MP3 as Voice Note (PTT)", rowId: "format_3", description: "MP3 as Voice Note" },
+                            { title: "4️⃣ MP4 as Document", rowId: "format_4", description: "MP4 as Document" },
+                            { title: "5️⃣ MP4 as Video", rowId: "format_5", description: "MP4 as Video" }
+                        ]
+                    }
+                ],
+                title: `Download formats for: ${vid.title}`
+            };
+            await socket.sendMessage(sender, listMsg);
+        }
+
+        // single handler for interactions related to this result card
+        const handler = async (update) => {
+            try {
+                // messages.upsert format may contain new messages in update.messages
+                const newMsgs = update.messages || (update.messages && update.messages[0]) ? update.messages : null;
+                let received = null;
+                // sometimes update has messages as array (Baileys), sometimes single object - handle both
+                if (Array.isArray(update.messages) && update.messages.length) {
+                    received = update.messages[0];
+                } else if (update.messages && update.messages[0]) {
+                    received = update.messages[0];
+                } else if (update.message) {
+                    received = update;
+                } else {
+                    // try fallback
+                    received = update;
+                }
+                if (!received) return;
+
+                // get owner/chat id where message came from
+                const fromId = received.key?.remoteJid || received.key?.participant || (received.key?.fromMe && sender);
+                if (fromId !== sender) return; // ignore other chats
+
+                // --- HANDLE BUTTON (main menu) clicks ---
+                const buttonsResp = received.message?.buttonsResponseMessage;
+                if (buttonsResp) {
+                    const btnId = buttonsResp.selectedButtonId || buttonsResp.selectedDisplayText;
+                    if (!btnId) return;
+
+                    // REACT to user's click
+                    await socket.sendMessage(sender, { react: { text: "📥", key: received.key } });
+
+                    if (btnId === 'download_menu') {
+                        // send the format list (user can pick)
+                        await sendFormatList();
+                        return; // keep listener active until they choose format or timeout
+                    } else if (btnId === 'other_menu') {
+                        await socket.sendMessage(sender, { text: "🌐 OTHER MENU\n- Use .help to see commands." }, { quoted: received });
+                        // optionally keep listener
+                        return;
+                    } else if (btnId === 'owner_info') {
+                        await socket.sendMessage(sender, { text: "👑 Owner: +94XXXXXXXXX\nUse .owner to contact." }, { quoted: received });
+                        return;
+                    } else if (btnId === 'ping') {
+                        await socket.sendMessage(sender, { text: "⚡ Pong! Bot is online." }, { quoted: received });
+                        return;
+                    } else if (btnId === 'bot_info') {
+                        await socket.sendMessage(sender, { text: "🤖 CHAMA MINI BOT v1.0\nFeatures: YT download, menus, quizzes, etc." }, { quoted: received });
+                        return;
+                    }
+                }
+
+                // --- HANDLE LIST selection (format pick) ---
+                const listResp = received.message?.listResponseMessage;
+                if (listResp) {
+                    const rowId = listResp.singleSelectReply?.selectedRowId || listResp.singleSelectReply?.selectedRowId;
+                    if (!rowId) return;
+                    // react
+                    await socket.sendMessage(sender, { react: { text: "📥", key: received.key } });
+                    // map and send
+                    await doSendChoice(rowId, received);
+                    // finished: remove handler
+                    socket.ev.off('messages.upsert', handler);
+                    return;
+                }
+
+                // --- HANDLE direct quoted numeric replies (user must quote the result card) ---
+                const text = received.message?.conversation || received.message?.extendedTextMessage?.text;
+                if (text) {
+                    // ensure this reply is quoting our sent card (so users must reply by quoting the card)
+                    const quotedId = received.message?.extendedTextMessage?.contextInfo?.stanzaId ||
+                                     received.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id ||
+                                     received.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id;
+                    // If quotedId exists, check it matches our resMsg id. If not quoted but message is a plain number, ignore.
+                    if (quotedId && quotedId === resMsg.key.id) {
+                        const choice = text.toString().trim().split(/\s+/)[0];
+                        // react to show we received the reply
+                        await socket.sendMessage(sender, { react: { text: "📥", key: received.key } });
+                        await doSendChoice(choice, received);
+                        // finished: remove handler
+                        socket.ev.off('messages.upsert', handler);
+                        return;
+                    }
+                }
+
+                // --- HANDLE direct button-style format ids (if any client sends as plain message like 'format_1') ---
+                // sometimes list responses or other clients may send the rowId as a normal message - support that if quoted to our card
+                if (text && received.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
+                    const quotedId2 = received.message?.extendedTextMessage?.contextInfo?.stanzaId ||
+                                      received.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id;
+                    if (quotedId2 && quotedId2 === resMsg.key.id) {
+                        const maybe = text.trim();
+                        if (maybe.startsWith('format_')) {
+                            await doSendChoice(maybe, received);
+                            socket.ev.off('messages.upsert', handler);
+                            return;
+                        }
+                    }
+                }
+
+            } catch (err) {
+                console.error("Handler error:", err);
+                try { socket.ev.off('messages.upsert', handler); } catch (e) { /* ignore */ }
+            }
+        };
+
+        // register the handler and auto-remove after 90 seconds
+        socket.ev.on('messages.upsert', handler);
+        setTimeout(() => {
+            try { socket.ev.off('messages.upsert', handler); } catch (e) { /* ignore */ }
+        }, 90 * 1000);
+
+        // final react to original message to show result sent
+        await socket.sendMessage(sender, { react: { text: '🔎', key: msg.key } });
+
+    } catch (err) {
+        console.error(err);
+        await socket.sendMessage(sender, { text: "*`Error occurred while searching/downloading`*" });
+    }
+    break;
+}
+
 case 'video':
 case 'song': {
     const yts = require('yt-search');
