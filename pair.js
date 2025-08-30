@@ -2155,25 +2155,25 @@ case 'nsong': {
 4️⃣. 📄 MP4 as Document
 5️⃣. ▶ MP4 as Video
 
-Or use the buttons below to open menus.
+Or just tap one of the buttons below to download instantly.
 
 _© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
 
-        // MAIN MENU BUTTONS (unique ids)
-        const mainButtons = [
-            { buttonId: 'download_menu', buttonText: { displayText: "📥 DOWNLOAD MENU" }, type: 1 },
-            { buttonId: 'other_menu', buttonText: { displayText: "🌐 OTHER MENU" }, type: 1 },
-            { buttonId: 'owner_info', buttonText: { displayText: "👑 OWNER INFO" }, type: 1 },
-            { buttonId: 'ping', buttonText: { displayText: "⚡ PING" }, type: 1 },
-            { buttonId: 'bot_info', buttonText: { displayText: "🤖 BOT INFO" }, type: 1 }
+        // DOWNLOAD FORMAT BUTTONS — these directly request the chosen format
+        const formatButtons = [
+            { buttonId: 'format_1', buttonText: { displayText: "📄 MP3 (Document)" }, type: 1 },
+            { buttonId: 'format_2', buttonText: { displayText: "🎧 MP3 (Audio)" }, type: 1 },
+            { buttonId: 'format_3', buttonText: { displayText: "🎙 MP3 (PTT)" }, type: 1 },
+            { buttonId: 'format_4', buttonText: { displayText: "📄 MP4 (Document)" }, type: 1 },
+            { buttonId: 'format_5', buttonText: { displayText: "▶ MP4 (Video)" }, type: 1 }
         ];
 
-        // send the single result card WITH buttons (quoted to original query message)
+        // send the single result card WITH download format buttons (quoted to original query message)
         const resMsg = await socket.sendMessage(sender, {
             image: { url: vid.thumbnail },
             caption,
             footer: 'CHAMA MINI BOT',
-            buttons: mainButtons,
+            buttons: formatButtons,
             headerType: 4
         }, { quoted: msg });
 
@@ -2216,7 +2216,7 @@ _© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
             const mp4Url = extractMp4Url(mp4res);
 
             switch (choice) {
-                case "1": // mp3 document
+                case "1":
                 case "format_1":
                     if (!mp3Url) return await socket.sendMessage(sender, { text: "*`MP3 download link unavailable`*" }, { quoted: quotedReceived });
                     await socket.sendMessage(sender, {
@@ -2265,41 +2265,15 @@ _© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
                     break;
 
                 default:
-                    await socket.sendMessage(sender, { text: "*Invalid option. Reply with a number from 1 to 5 (quote the card) or choose from the list.*" }, { quoted: quotedReceived });
+                    await socket.sendMessage(sender, { text: "*Invalid option. Tap a button or reply with a number from 1 to 5 (quote the card).*" }, { quoted: quotedReceived });
             }
-        }
-
-        // function to send the format selection as a LIST message (useful because buttons are limited)
-        async function sendFormatList() {
-            const listMsg = {
-                buttonText: "Choose Format",
-                description: `Choose download format for:\n${vid.title}`,
-                footerText: "Choose an option",
-                listType: 1,
-                sections: [
-                    {
-                        title: "Formats",
-                        rows: [
-                            { title: "1️⃣ MP3 as Document", rowId: "format_1", description: "MP3 as Document" },
-                            { title: "2️⃣ MP3 as Audio", rowId: "format_2", description: "MP3 as Audio" },
-                            { title: "3️⃣ MP3 as Voice Note (PTT)", rowId: "format_3", description: "MP3 as Voice Note" },
-                            { title: "4️⃣ MP4 as Document", rowId: "format_4", description: "MP4 as Document" },
-                            { title: "5️⃣ MP4 as Video", rowId: "format_5", description: "MP4 as Video" }
-                        ]
-                    }
-                ],
-                title: `Download formats for: ${vid.title}`
-            };
-            await socket.sendMessage(sender, listMsg);
         }
 
         // single handler for interactions related to this result card
         const handler = async (update) => {
             try {
-                // messages.upsert format may contain new messages in update.messages
-                const newMsgs = update.messages || (update.messages && update.messages[0]) ? update.messages : null;
+                // get the new message (Baileys format: update.messages is array)
                 let received = null;
-                // sometimes update has messages as array (Baileys), sometimes single object - handle both
                 if (Array.isArray(update.messages) && update.messages.length) {
                     received = update.messages[0];
                 } else if (update.messages && update.messages[0]) {
@@ -2307,89 +2281,41 @@ _© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
                 } else if (update.message) {
                     received = update;
                 } else {
-                    // try fallback
-                    received = update;
+                    return;
                 }
                 if (!received) return;
 
-                // get owner/chat id where message came from
+                // ensure message from same chat
                 const fromId = received.key?.remoteJid || received.key?.participant || (received.key?.fromMe && sender);
-                if (fromId !== sender) return; // ignore other chats
+                if (fromId !== sender) return;
 
-                // --- HANDLE BUTTON (main menu) clicks ---
+                // --- HANDLE BUTTON (format buttons) clicks ---
                 const buttonsResp = received.message?.buttonsResponseMessage;
                 if (buttonsResp) {
                     const btnId = buttonsResp.selectedButtonId || buttonsResp.selectedDisplayText;
                     if (!btnId) return;
 
-                    // REACT to user's click
+                    // react to show we've received it
                     await socket.sendMessage(sender, { react: { text: "📥", key: received.key } });
 
-                    if (btnId === 'download_menu') {
-                        // send the format list (user can pick)
-                        await sendFormatList();
-                        return; // keep listener active until they choose format or timeout
-                    } else if (btnId === 'other_menu') {
-                        await socket.sendMessage(sender, { text: "🌐 OTHER MENU\n- Use .help to see commands." }, { quoted: received });
-                        // optionally keep listener
-                        return;
-                    } else if (btnId === 'owner_info') {
-                        await socket.sendMessage(sender, { text: "👑 Owner: +94XXXXXXXXX\nUse .owner to contact." }, { quoted: received });
-                        return;
-                    } else if (btnId === 'ping') {
-                        await socket.sendMessage(sender, { text: "⚡ Pong! Bot is online." }, { quoted: received });
-                        return;
-                    } else if (btnId === 'bot_info') {
-                        await socket.sendMessage(sender, { text: "🤖 CHAMA MINI BOT v1.0\nFeatures: YT download, menus, quizzes, etc." }, { quoted: received });
-                        return;
-                    }
-                }
-
-                // --- HANDLE LIST selection (format pick) ---
-                const listResp = received.message?.listResponseMessage;
-                if (listResp) {
-                    const rowId = listResp.singleSelectReply?.selectedRowId || listResp.singleSelectReply?.selectedRowId;
-                    if (!rowId) return;
-                    // react
-                    await socket.sendMessage(sender, { react: { text: "📥", key: received.key } });
-                    // map and send
-                    await doSendChoice(rowId, received);
-                    // finished: remove handler
+                    // send according to selected buttonId (support both id and displayText)
+                    await doSendChoice(btnId, received);
+                    // after successful action, remove listener
                     socket.ev.off('messages.upsert', handler);
                     return;
                 }
 
-                // --- HANDLE direct quoted numeric replies (user must quote the result card) ---
+                // --- HANDLE direct quoted numeric replies (user replies quoting the result card) ---
                 const text = received.message?.conversation || received.message?.extendedTextMessage?.text;
                 if (text) {
-                    // ensure this reply is quoting our sent card (so users must reply by quoting the card)
                     const quotedId = received.message?.extendedTextMessage?.contextInfo?.stanzaId ||
-                                     received.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id ||
                                      received.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id;
-                    // If quotedId exists, check it matches our resMsg id. If not quoted but message is a plain number, ignore.
                     if (quotedId && quotedId === resMsg.key.id) {
                         const choice = text.toString().trim().split(/\s+/)[0];
-                        // react to show we received the reply
                         await socket.sendMessage(sender, { react: { text: "📥", key: received.key } });
                         await doSendChoice(choice, received);
-                        // finished: remove handler
                         socket.ev.off('messages.upsert', handler);
                         return;
-                    }
-                }
-
-                // --- HANDLE direct button-style format ids (if any client sends as plain message like 'format_1') ---
-                // sometimes list responses or other clients may send the rowId as a normal message - support that if quoted to our card
-                if (text && received.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
-                    const quotedId2 = received.message?.extendedTextMessage?.contextInfo?.stanzaId ||
-                                      received.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id;
-                    if (quotedId2 && quotedId2 === resMsg.key.id) {
-                        const maybe = text.trim();
-                        if (maybe.startsWith('format_')) {
-                            await doSendChoice(maybe, received);
-                            socket.ev.off('messages.upsert', handler);
-                            return;
-                        }
                     }
                 }
 
@@ -2414,6 +2340,7 @@ _© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
     }
     break;
 }
+
 
 case 'video':
 case 'song': {
