@@ -985,6 +985,69 @@ case 'other': {
     });
     break;
 }
+
+
+                case 'pair': {
+    // ✅ Fix for node-fetch v3.x (ESM-only module)
+    const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const q = msg.message?.conversation ||
+              msg.message?.extendedTextMessage?.text ||
+              msg.message?.imageMessage?.caption ||
+              msg.message?.videoMessage?.caption || '';
+
+    const number = q.replace(/^[.\/!]pair\s*/i, '').trim();
+
+    if (!number) {
+        return await socket.sendMessage(sender, {
+            text: '*📌 Usage:* .pair 9470604XXXX'
+        }, { quoted: msg });
+    }
+
+    try {
+        const url = `https://htdxtxxr.onrender.com/code?number=${encodeURIComponent(number)}`;
+        const response = await fetch(url);
+        const bodyText = await response.text();
+
+        console.log("🌐 API Response:", bodyText);
+
+        let result;
+        try {
+            result = JSON.parse(bodyText);
+        } catch (e) {
+            console.error("❌ JSON Parse Error:", e);
+            return await socket.sendMessage(sender, {
+                text: '❌ Invalid response from server. Please contact support.'
+            }, { quoted: msg });
+        }
+
+        if (!result || !result.code) {
+            return await socket.sendMessage(sender, {
+                text: '❌ Failed to retrieve pairing code. Please check the number.'
+            }, { quoted: msg });
+        }
+
+        await socket.sendMessage(sender, {
+            text: `> *𝗖𝗛𝗔𝗠𝗔 𝗠𝗗 𝐌𝙸𝙽𝙸 𝐁𝙾𝚃 𝐏𝙰𝙸𝚁 𝐂𝙾𝙼𝙿𝙻𝙴𝚃𝙴𝙳* ✅\n\n*🔑 Your pairing code is:* ${result.code}`
+        }, { quoted: msg });
+
+        await sleep(2000);
+
+        await socket.sendMessage(sender, {
+            text: `${result.code}`
+        }, { quoted: msg });
+
+    } catch (err) {
+        console.error("❌ Pair Command Error:", err);
+        await socket.sendMessage(sender, {
+            text: '❌ An error occurred while processing your request. Please try again later.'
+        }, { quoted: msg });
+    }
+
+    break;
+}
+
                 // PING COMMAND
                 case 'ping': {
                     await socket.sendMessage(sender, {
