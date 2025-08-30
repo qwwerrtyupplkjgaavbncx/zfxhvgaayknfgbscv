@@ -2095,8 +2095,8 @@ _Provided by CHAMA_`;
 
 //
 
-
-case 'nsong': {
+case 'video':
+case 'song': {
     const yts = require('yt-search');
     const axios = require('axios');
 
@@ -2342,8 +2342,8 @@ _© Powered by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃_`;
 }
 
 
-case 'video':
-case 'song': {
+case 'nvideo':
+case 'nsong': {
     const yts = require('yt-search');
     const axios = require('axios');
 
@@ -3829,6 +3829,128 @@ case 'send': {
 break;
 
 
+case 'tourl':
+case 'imgtourl':
+case 'imgurl':
+case 'url':
+case 'geturl':
+case 'upload': {
+    const axios = require("axios");
+    const FormData = require('form-data');
+    const fs = require('fs');
+    const os = require('os');
+    const path = require("path");
+
+    try {
+        // Get quoted message if present, else use the message itself
+        const quotedCtx = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+        const quotedMsg = quotedCtx ? quotedCtx : msg.message ? msg.message : null;
+
+        // Try to determine mimetype from common places
+        const mimeType =
+            (quotedMsg && (quotedMsg.mimetype || quotedMsg.imageMessage?.mimetype || quotedMsg.videoMessage?.mimetype || quotedMsg.audioMessage?.mimetype || quotedMsg.stickerMessage?.mimetype)) || '';
+
+        if (!quotedMsg || !mimeType) {
+            await socket.sendMessage(sender, { text: '*Reply to an image / video / audio / sticker to upload (use .tourl as a reply)*' }, { quoted: msg });
+            break;
+        }
+
+        // Attempt several download methods (support different lib wrappers)
+        let mediaBuffer = null;
+
+        // 1) If quoted object has .download() method (some wrappers provide this)
+        try {
+            if (typeof quotedMsg.download === 'function') {
+                mediaBuffer = await quotedMsg.download();
+            }
+        } catch (e) { /* ignore */ }
+
+        // 2) If socket has helper (Baileys-like) downloadMediaMessage
+        if (!mediaBuffer && socket && typeof socket.downloadMediaMessage === 'function') {
+            try {
+                // some libs expect the full message node (wrapped)
+                const node = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ? msg.message.extendedTextMessage.contextInfo.quotedMessage : msg.message;
+                mediaBuffer = await socket.downloadMediaMessage(node);
+            } catch (e) { /* ignore */ }
+        }
+
+        // 3) If quoted message contains a direct url field, fetch via axios
+        if (!mediaBuffer && (quotedMsg.url || quotedMsg.imageMessage?.url || quotedMsg.videoMessage?.url)) {
+            const url = quotedMsg.url || quotedMsg.imageMessage?.url || quotedMsg.videoMessage?.url;
+            try {
+                const res = await axios.get(url, { responseType: 'arraybuffer' });
+                mediaBuffer = Buffer.from(res.data);
+            } catch (e) { /* ignore */ }
+        }
+
+        // 4) final fallback: try to use message.download() if top-level msg has it
+        if (!mediaBuffer && typeof msg.download === 'function') {
+            try { mediaBuffer = await msg.download(); } catch (e) { /* ignore */ }
+        }
+
+        if (!mediaBuffer) {
+            await socket.sendMessage(sender, { text: '*Failed to download media. Try using a reply to the media message or check your client wrapper.*' }, { quoted: msg });
+            break;
+        }
+
+        // create temp file
+        let extension = '';
+        if (mimeType.includes('image/jpeg') || mimeType.includes('image/jpg')) extension = '.jpg';
+        else if (mimeType.includes('image/png')) extension = '.png';
+        else if (mimeType.includes('image/webp')) extension = '.webp';
+        else if (mimeType.includes('video')) extension = '.mp4';
+        else if (mimeType.includes('audio')) extension = '.mp3';
+        else extension = path.extname(mimeType) || '';
+
+        const tmpPath = path.join(os.tmpdir(), `catbox_upload_${Date.now()}${extension}`);
+        fs.writeFileSync(tmpPath, mediaBuffer);
+
+        // prepare form-data and upload to Catbox
+        const form = new FormData();
+        form.append('fileToUpload', fs.createReadStream(tmpPath), `file${extension}`);
+        form.append('reqtype', 'fileupload');
+
+        const uploadRes = await axios.post("https://catbox.moe/user/api.php", form, {
+            headers: form.getHeaders(),
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 60 * 1000
+        });
+
+        // cleanup temp file
+        try { fs.unlinkSync(tmpPath); } catch (e) { /* ignore */ }
+
+        if (!uploadRes || !uploadRes.data) {
+            await socket.sendMessage(sender, { text: '*Upload failed (no response from Catbox)*' }, { quoted: msg });
+            break;
+        }
+
+        // Catbox returns a URL string on success
+        const mediaUrl = (typeof uploadRes.data === 'string') ? uploadRes.data.trim() : (uploadRes.data?.url || JSON.stringify(uploadRes.data));
+
+        // Determine friendly media type
+        let mediaKind = 'File';
+        if (mimeType.includes('image')) mediaKind = 'Image';
+        else if (mimeType.includes('video')) mediaKind = 'Video';
+        else if (mimeType.includes('audio')) mediaKind = 'Audio';
+        else if (mimeType.includes('webp') || mimeType.includes('sticker')) mediaKind = 'Sticker';
+
+        // Send reply with details (quoted)
+        const outText =
+            `*${mediaKind} Uploaded Successfully*\n\n` +
+            `*Size:* ${formatBytes(mediaBuffer.length)}\n` +
+            `*URL:* ${mediaUrl}\n\n` +
+            `> © Uploaded by 𝙲𝙷𝙰𝙼𝙰 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃 💜`;
+
+        await socket.sendMessage(sender, { text: outText }, { quoted: msg });
+
+    } catch (err) {
+        console.error(err);
+        await socket.sendMessage(sender, { text: `Error: ${err.message || err}` }, { quoted: msg });
+    }
+
+    break;
+}
 
 case 'ai':
 case 'chat':
