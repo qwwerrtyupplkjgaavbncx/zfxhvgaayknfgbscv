@@ -2095,7 +2095,298 @@ _Provided by CHAMA_`;
 
 //
 
-case 'video':
+case 'video': {
+  const { ytsearch } = require('@dark-yasiya/yt-dl.js');
+
+  // safe fetchJson helper
+  async function fetchJson(url) {
+    let _fetch = globalThis.fetch;
+    if (!_fetch) {
+      const nf = await import('node-fetch').catch(() => null);
+      if (!nf) throw new Error('No fetch available');
+      _fetch = nf.default;
+    }
+    const res = await _fetch(url);
+    return await res.json();
+  }
+
+  try {
+    if (!q) return await reply("Please provide a YouTube URL or song name.");
+    const yt = await ytsearch(q);
+    if (!yt || !yt.results || yt.results.length === 0) return reply("No results found!");
+    const yts = yt.results[0];
+
+    // APIs for qualities
+    const apis = {
+      q144: `https://sadas-ytmp4-5.vercel.app/convert?link=${encodeURIComponent(yts.url)}&format=mp4&audioBitrate=128&videoQuality=144&filenameStyle=pretty&vCodec=h264`,
+      q240: `https://sadas-ytmp4-5.vercel.app/convert?link=${encodeURIComponent(yts.url)}&format=mp4&audioBitrate=128&videoQuality=240&filenameStyle=pretty&vCodec=h264`,
+      q360: `https://sadas-ytmp4-5.vercel.app/convert?link=${encodeURIComponent(yts.url)}&format=mp4&audioBitrate=128&videoQuality=360&filenameStyle=pretty&vCodec=h264`,
+      q720: `https://sadas-ytmp4-5.vercel.app/convert?link=${encodeURIComponent(yts.url)}&format=mp4&audioBitrate=128&videoQuality=720&filenameStyle=pretty&vCodec=h264`,
+      q1080:`https://sadas-ytmp4-5.vercel.app/convert?link=${encodeURIComponent(yts.url)}&format=mp4&audioBitrate=128&videoQuality=1080&filenameStyle=pretty&vCodec=h264`
+    };
+
+    // background prefetch (non-blocking)
+    let prefetch = {};
+    (async () => {
+      try {
+        const p = await Promise.allSettled([
+          fetchJson(apis.q144),
+          fetchJson(apis.q240),
+          fetchJson(apis.q360),
+          fetchJson(apis.q720),
+          fetchJson(apis.q1080)
+        ]);
+        prefetch.q144 = p[0].status === 'fulfilled' ? p[0].value : null;
+        prefetch.q240 = p[1].status === 'fulfilled' ? p[1].value : null;
+        prefetch.q360 = p[2].status === 'fulfilled' ? p[2].value : null;
+        prefetch.q720 = p[3].status === 'fulfilled' ? p[3].value : null;
+        prefetch.q1080= p[4].status === 'fulfilled' ? p[4].value : null;
+      } catch (e) { /* ignore */ }
+    })();
+
+    const titleStyled = `𝗩𝗜𝗗𝗘𝗢 𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗𝗘𝗥`;
+    const ytmsg = `*╭─────────────⊶*
+*│*🎥 *${pakaya}${titleStyled}${pakaya}*
+*╰─────────────────⊶*
+*┏━━━━━━━━━━━━━━━━━━━━┓*
+*┃ 🎬 ${pakaya}Title:${pakaya}* ${yts.title}
+*┃ ⏱️ ${pakaya}Duration:${pakaya}* ${yts.timestamp}
+*┃ 👀 ${pakaya}Views:${pakaya}* ${yts.views}
+*┃ 👤 ${pakaya}Author:${pakaya}* ${yts.author.name}
+*┃ 🔗 ${pakaya}URL:${pakaya}* ${yts.url}
+*┗━━━━━━━━━━━━━━━━━━━━┛*
+
+_Tap a list item or reply (quoted or plain) with e.g. 1.4 or 2.3 to download._`;
+
+    const contextInfo = {
+      mentionedJid: [m.sender],
+      forwardingScore: 999,
+      isForwarded: true
+    };
+
+    // Build list rows (rowId uses the same codes the handler expects)
+    const sections = [
+      {
+        title: '𝗩𝗜𝗗𝗘𝗢 𝗧𝗬𝗣𝗘 𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗 🎥',
+        rows: [
+          { title: '1.1 — 144p', rowId: '1.1', description: 'Stream 144p (video)' },
+          { title: '1.2 — 240p', rowId: '1.2', description: 'Stream 240p (video)' },
+          { title: '1.3 — 360p', rowId: '1.3', description: 'Stream 360p (video)' },
+          { title: '1.4 — 720p', rowId: '1.4', description: 'Stream 720p (video)' },
+          { title: '1.5 — 1080p', rowId: '1.5', description: 'Stream 1080p (video)' }
+        ]
+      },
+      {
+        title: '𝗗𝗢𝗖𝗨𝗠𝗘𝗡𝗧 𝗧𝗬𝗣𝗘 𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗 📁',
+        rows: [
+          { title: '2.1 — 144p', rowId: '2.1', description: 'Download file 144p' },
+          { title: '2.2 — 240p', rowId: '2.2', description: 'Download file 240p' },
+          { title: '2.3 — 360p', rowId: '2.3', description: 'Download file 360p' },
+          { title: '2.4 — 720p', rowId: '2.4', description: 'Download file 720p' },
+          { title: '2.5 — 1080p', rowId: '2.5', description: 'Download file 1080p' }
+        ]
+      }
+    ];
+
+    const listMessage = {
+      text: ytmsg,
+      footer: 'CHAMA MD',
+      title: `🎵 ${yts.title.length > 40 ? yts.title.substring(0,40)+'...' : yts.title}`,
+      buttonText: 'SELECT QUALITY',
+      sections
+    };
+
+    // also provide quick quality buttons (buttonId same codes so clicks map directly)
+    const qualityButtons = [
+      { buttonId: '1.1', buttonText: { displayText: '1.1 • 144p' }, type: 1 },
+      { buttonId: '1.2', buttonText: { displayText: '1.2 • 240p' }, type: 1 },
+      { buttonId: '1.3', buttonText: { displayText: '1.3 • 360p' }, type: 1 },
+      { buttonId: '1.4', buttonText: { displayText: '1.4 • 720p' }, type: 1 },
+      { buttonId: '1.5', buttonText: { displayText: '1.5 • 1080p' }, type: 1 }
+    ];
+    const docButtons = [
+      { buttonId: '2.1', buttonText: { displayText: '2.1 • 144p' }, type: 1 },
+      { buttonId: '2.2', buttonText: { displayText: '2.2 • 240p' }, type: 1 },
+      { buttonId: '2.3', buttonText: { displayText: '2.3 • 360p' }, type: 1 },
+      { buttonId: '2.4', buttonText: { displayText: '2.4 • 720p' }, type: 1 },
+      { buttonId: '2.5', buttonText: { displayText: '2.5 • 1080p' }, type: 1 }
+    ];
+
+    // send thumbnail + quick buttons + context
+    const videoMsg = await conn.sendMessage(from, {
+      image: { url: yts.thumbnail },
+      caption: ytmsg,
+      footer: 'CHAMA MD',
+      buttons: [
+        { buttonId: 'btn_video_list', buttonText: { displayText: '🎥 Video List' }, type: 1 },
+        { buttonId: 'btn_doc_list', buttonText: { displayText: '📁 Doc List' }, type: 1 },
+        { buttonId: 'btn_cancel', buttonText: { displayText: '❌ Cancel' }, type: 1 }
+      ],
+      headerType: 4,
+      contextInfo
+    }, { quoted: mek });
+
+    // send interactive list (users can tap rows)
+    await conn.sendMessage(from, listMessage, { quoted: videoMsg });
+
+    // also send quality quick buttons for immediate tap (video buttons & doc buttons will both be listened to)
+    await conn.sendMessage(from, {
+      text: 'Quick video qualities (tap) — or tap the list above / reply with code (e.g. 1.3).',
+      buttons: qualityButtons,
+      headerType: 1
+    }, { quoted: videoMsg });
+    await conn.sendMessage(from, {
+      text: 'Quick document qualities (tap) — or tap the list above / reply with code (e.g. 2.3).',
+      buttons: docButtons,
+      headerType: 1
+    }, { quoted: videoMsg });
+
+    // helper to extract url
+    function extractDownloadUrl(obj) {
+      if (!obj) return null;
+      return obj.result?.downloadUrl || obj.result?.download_url || obj.downloadUrl || obj.download_url || obj.url || null;
+    }
+
+    const idxToKey = { '1': 'q144', '2': 'q240', '3': 'q360', '4': 'q720', '5': 'q1080' };
+
+    // send file based on code like '1.3' or '2.2'
+    async function handleChoice(code, incomingMsg) {
+      const parts = code.split('.');
+      const group = parts[0]; // '1' or '2'
+      const idx = parts[1] || '1';
+      const map = { '1': 'q144', '2': 'q240', '3': 'q360', '4': 'q720', '5': 'q1080' };
+      const key = map[idx] || 'q360';
+
+      // try prefetch then on-demand
+      let apiRes = prefetch[key];
+      if (!apiRes) {
+        try { apiRes = await fetchJson(apis[key]); } catch (e) { apiRes = null; }
+      }
+
+      const dlUrl = extractDownloadUrl(apiRes);
+      if (!dlUrl) {
+        await conn.sendMessage(from, { text: '*`Download link unavailable for this quality`*' }, { quoted: incomingMsg });
+        return;
+      }
+
+      // metadata ext
+      const ext = {
+        externalAdReply: {
+          title: yts.title.length > 25 ? `${yts.title.substring(0,22)}...` : yts.title,
+          body: "Join our WhatsApp Channel",
+          mediaType: 1,
+          thumbnailUrl: yts.thumbnail.replace('default.jpg','hqdefault.jpg'),
+          sourceUrl: 'https://whatsapp.com/channel/0029Vb4eZqo3bbV0lTGjFn2S',
+          mediaUrl: 'https://whatsapp.com/channel/0029Vb4eZqo3bbV0lTGjFn2S',
+          showAdAttribution: true,
+          renderLargerThumbnail: true
+        }
+      };
+
+      if (group === '1') {
+        // stream as video
+        await conn.sendMessage(from, {
+          video: { url: dlUrl },
+          mimetype: "video/mp4",
+          caption: "*♯ `𝙿𝙾𝚆𝙴𝚁𝙳 𝙱𝚈 𝙲𝙷𝙰𝙼𝙰 𝙼𝙳`*",
+          contextInfo: ext
+        }, { quoted: incomingMsg });
+      } else {
+        // send as document
+        await conn.sendMessage(from, {
+          document: { url: dlUrl },
+          mimetype: "video/mp4",
+          fileName: `${yts.title}.mp4`,
+          caption: "*♯ `𝙿𝙾𝚆𝙴𝚁𝙳 𝙱𝚈 𝙲𝙷𝙰𝙼𝙰 𝙼𝙳`*",
+          contextInfo: ext
+        }, { quoted: incomingMsg });
+      }
+    }
+
+    // main listener: list selection, button clicks, or text replies (quoted or plain)
+    const handler = async (msgUpdate) => {
+      try {
+        const incoming = Array.isArray(msgUpdate.messages) ? msgUpdate.messages[0] : msgUpdate.messages || msgUpdate;
+        if (!incoming || !incoming.message) return;
+        const fromId = incoming.key?.remoteJid || incoming.key?.participant || (incoming.key?.fromMe && from);
+        if (fromId !== from) return;
+
+        // LIST selection
+        const listResp = incoming.message.listResponseMessage || incoming.message.singleSelectReply;
+        if (listResp) {
+          const selectedId = listResp.selectedRowId || (listResp.singleSelectReply && listResp.singleSelectReply.selectedRowId);
+          if (selectedId) {
+            await conn.sendMessage(from, { react: { text: "📥", key: incoming.key } });
+            await handleChoice(selectedId, incoming);
+            cleanup();
+            return;
+          }
+        }
+
+        // BUTTON clicks (we made quality buttons with ids e.g. '1.4')
+        const btn = incoming.message.buttonsResponseMessage;
+        if (btn) {
+          const id = btn.selectedButtonId || btn.selectedDisplayText;
+          await conn.sendMessage(from, { react: { text: "📥", key: incoming.key } });
+          if (id === 'btn_cancel') {
+            await conn.sendMessage(from, { text: 'Cancelled ✅' }, { quoted: incoming });
+            cleanup();
+            return;
+          }
+          // if id matches code pattern like '1.3' or '2.2' -> handle
+          if (/^[12]\.[1-5]$/.test(String(id))) {
+            await handleChoice(String(id), incoming);
+            cleanup();
+            return;
+          }
+          // support 'btn_video_list' or 'btn_doc_list' to re-show list
+          if (id === 'btn_video_list' || id === 'btn_doc_list') {
+            await conn.sendMessage(from, listMessage, { quoted: videoMsg });
+            return;
+          }
+        }
+
+        // TEXT replies (quoted or plain). Accept both quoted and plain numeric codes while handler active
+        const text = incoming.message.extendedTextMessage?.text || incoming.message.conversation || '';
+        const quotedId = incoming.message.extendedTextMessage?.contextInfo?.stanzaId
+          || incoming.message.extendedTextMessage?.contextInfo?.quotedMessage?.key?.id
+          || incoming.message.contextInfo?.quotedMessage?.key?.id
+          || null;
+
+        if (text && text.trim()) {
+          const choice = text.toString().trim().split(/\s+/)[0];
+          // allow patterns like '1.3' or '2.2'
+          if (/^[12]\.[1-5]$/.test(choice)) {
+            // if quoted OR plain, allow (so both reply and plain reply work)
+            await conn.sendMessage(from, { react: { text: "📥", key: incoming.key } });
+            await handleChoice(choice, incoming);
+            cleanup();
+            return;
+          }
+        }
+
+      } catch (err) {
+        console.error('videonew handler error', err);
+      }
+    };
+
+    // cleanup and register
+    const cleanup = () => {
+      try { conn.ev.off('messages.upsert', handler); } catch (e) {}
+      try { clearTimeout(timer); } catch (e) {}
+    };
+    conn.ev.on('messages.upsert', handler);
+    const timer = setTimeout(() => {
+      try { conn.ev.off('messages.upsert', handler); } catch (e) {}
+    }, 90 * 1000);
+
+  } catch (e) {
+    console.error(e);
+    reply("An error occurred. Please try again later.");
+  }
+  break;
+}
+
 case 'song': {
     const yts = require('yt-search');
     const axios = require('axios');
