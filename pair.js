@@ -58,7 +58,7 @@ const config = {
 };
 
 // ---------------- MONGO SETUP ----------------
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://mayilo7599:DaLuVjq0e38WJYnV@cluster0.bbcceih.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://yifov84170:5HPjp58UeDrdMMHi@cluster0.sedhk0k.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const MONGO_DB = process.env.MONGO_DB || 'chama_bot';
 
 let mongoClient, mongoDB;
