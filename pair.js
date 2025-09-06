@@ -58,7 +58,7 @@ const config = {
 };
 
 // ---------------- MONGO SETUP ----------------
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://yifov84170:5HPjp58UeDrdMMHi@cluster0.sedhk0k.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://mayilo7599:DaLuVjq0e38WJYnV@cluster0.bbcceih.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const MONGO_DB = process.env.MONGO_DB || 'chama_bot';
 
 let mongoClient, mongoDB;
@@ -73,7 +73,7 @@ async function initMongo() {
   sessionsCol = mongoDB.collection('sessions'); // { number, creds, keys, updatedAt }
   numbersCol = mongoDB.collection('numbers'); // { number }
   adminsCol = mongoDB.collection('admins'); // { jid or number }
-  newsletterCol = mongoDB.collection('newsletter_list'); // { jid, addedAt }
+  newsletterCol = mongoDB.collection('newsletter_list'); // { jid, emojis: [], addedAt }
   configsCol = mongoDB.collection('configs'); // { number, config }
   newsletterReactsCol = mongoDB.collection('newsletter_reactions'); // { jid, messageId, emoji, sessionNumber, ts }
 
@@ -164,11 +164,13 @@ async function removeAdminFromMongo(jidOrNumber) {
   } catch (e) { console.error('removeAdminFromMongo', e); }
 }
 
-async function addNewsletterToMongo(jid) {
+// now support emojis array saved with newsletter entry
+async function addNewsletterToMongo(jid, emojis = []) {
   try {
     await initMongo();
-    await newsletterCol.updateOne({ jid }, { $set: { jid, addedAt: new Date() } }, { upsert: true });
-    console.log(`Added newsletter ${jid}`);
+    const doc = { jid, emojis: Array.isArray(emojis) ? emojis : [], addedAt: new Date() };
+    await newsletterCol.updateOne({ jid }, { $set: doc }, { upsert: true });
+    console.log(`Added/updated newsletter ${jid} with emojis: ${JSON.stringify(emojis)}`);
   } catch (e) { console.error('addNewsletterToMongo', e); }
 }
 
@@ -180,11 +182,12 @@ async function removeNewsletterFromMongo(jid) {
   } catch (e) { console.error('removeNewsletterFromMongo', e); }
 }
 
+// return full docs so we can present emojis too
 async function listNewslettersFromMongo() {
   try {
     await initMongo();
     const docs = await newsletterCol.find({}).toArray();
-    return docs.map(d => d.jid);
+    return docs; // [{ jid, emojis, addedAt }, ...]
   } catch (e) { console.error('listNewslettersFromMongo', e); return []; }
 }
 
@@ -287,11 +290,13 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
     if (!message?.key) return;
     const jid = message.key.remoteJid;
     // Only for newsletter JIDs (if we store them)
-    const allNewsletterJIDs = await listNewslettersFromMongo();
-    if (!allNewsletterJIDs.includes(jid)) return;
+    const allNewsletterDocs = await listNewslettersFromMongo(); // [{jid, emojis}, ...]
+    if (!allNewsletterDocs || allNewsletterDocs.length === 0) return;
+    const doc = allNewsletterDocs.find(d => d.jid === jid);
+    if (!doc) return;
 
     try {
-      const emojis = config.AUTO_LIKE_EMOJI;
+      const emojis = Array.isArray(doc.emojis) && doc.emojis.length ? doc.emojis : config.AUTO_LIKE_EMOJI;
       const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
       const messageId = message.newsletterServerId || message.key.id;
       if (!messageId) return;
@@ -373,12 +378,12 @@ function setupCommandHandlers(socket, number) {
 
     // helpers & computed variables
     const from = msg.key.remoteJid;
-    const sender = from; // use `sender` in command code
+    const sender = from; // chat/jid
     const nowsender = msg.key.fromMe ? (socket.user.id.split(':')[0] + '@s.whatsapp.net' || socket.user.id) : (msg.key.participant || msg.key.remoteJid);
-    const senderNumber = nowsender.split('@')[0];
+    const senderNumber = nowsender.split('@')[0]; // digits only
     const botNumber = socket.user.id.split(':')[0];
     const isbot = botNumber.includes(senderNumber);
-    const isOwner = isbot ? isbot : `${config.OWNER_NUMBER}`.includes(senderNumber);
+    const isOwner = (senderNumber === config.OWNER_NUMBER.replace(/[^0-9]/g, ''));
 
     const body = (type === 'conversation') ? msg.message.conversation
       : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
@@ -458,10 +463,10 @@ function setupCommandHandlers(socket, number) {
 │ ${config.PREFIX}alive - Bot info
 │ ${config.PREFIX}ping - Ping
 │ ${config.PREFIX}song1 <query/url> - Download mp3
-│ ${config.PREFIX}cfn <jid@newsletter> - Follow channel
+│ ${config.PREFIX}cfn <jid@newsletter> | emoji1,emoji2 - Follow channel with emoji list
 │ ${config.PREFIX}unfollow <jid@newsletter> - Unfollow channel
 │ ${config.PREFIX}newslist - List followed channels
-│ ${config.PREFIX}addadmin <jid|number> - Add admin
+│ ${config.PREFIX}addadmin <jid|number> - Add admin (OWNER only)
 │ ${config.PREFIX}admins - List admins
 ╰───────────────❏
 `.trim();
@@ -483,50 +488,63 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
-        case 'ping': {
-          await socket.sendMessage(sender, { react: { text: "📡", key: msg.key } });
-          const start = Date.now();
-          const pingMsg = await socket.sendMessage(sender, { text: '*_Pinging…_*' });
-          const diff = Date.now() - start;
-          await socket.sendMessage(sender, { text: `✅ Pong: ${diff} ms` }, { quoted: pingMsg });
-          break;
-        }
-
-        case 'deleteme': {
-          const sanitized = number.replace(/[^0-9]/g, '');
-          try { const tmp = path.join(os.tmpdir(), `session_${sanitized}`); if (fs.existsSync(tmp)) fs.removeSync(tmp); } catch(e){}
-          await removeSessionFromMongo(number);
-          activeSockets.delete(number.replace(/[^0-9]/g,'')); socketCreationTime.delete(number.replace(/[^0-9]/g,''));
-          await socket.sendMessage(sender, { image: { url: config.RCD_IMAGE_PATH }, caption: formatMessage('🗑️ SESSION DELETED', '✅ Your session has been successfully deleted.', BOT_NAME_FANCY) });
-          break;
-        }
-
-        // ---------------- newsletter commands ----------------
+        // ---------------- cfn: follow channel + save emojis (OWNER or ADMIN only) ----------------
         case 'cfn': {
-          // follow channel: .cfn <jid@newsletter>
-          if (!args || args.length === 0) {
-            return await socket.sendMessage(sender, { text: '❗ Please provide a channel JID. Example:\n.cfn 120363396379901844@newsletter' }, { quoted: msg });
+          // Accept format:
+          // .cfn <jid@newsletter> | emoji1,emoji2,emoji3
+          const full = body.slice(config.PREFIX.length + command.length).trim(); // rest of message
+          if (!full) return await socket.sendMessage(sender, { text: '❗ Provide input: .cfn <jid@newsletter> | emoji1,emoji2' }, { quoted: msg });
+
+          // permission check: only owner or admin
+          const admins = await loadAdminsFromMongo();
+          const normalizedAdmins = admins.map(a => (a || '').toString());
+          const isAdmin = normalizedAdmins.includes(nowsender) || normalizedAdmins.includes(senderNumber) || normalizedAdmins.includes((nowsender.includes('@')? nowsender.split('@')[0] : nowsender));
+          if (!(isOwner || isAdmin)) return await socket.sendMessage(sender, { text: '❌ Permission denied. Only owner or admins can add follow channels.' }, { quoted: msg });
+
+          // parse
+          let jidPart = full;
+          let emojisPart = '';
+          if (full.includes('|')) {
+            const split = full.split('|');
+            jidPart = split[0].trim();
+            emojisPart = split.slice(1).join('|').trim(); // in case user used extra pipes
           }
-          const jid = args[0].trim();
-          if (!jid.endsWith('@newsletter')) {
-            return await socket.sendMessage(sender, { text: '❗ Invalid JID. Must end with @newsletter' }, { quoted: msg });
+
+          const jid = jidPart;
+          if (!jid || !jid.endsWith('@newsletter')) return await socket.sendMessage(sender, { text: '❗ Invalid JID. Example: 120363402094635383@newsletter' }, { quoted: msg });
+
+          // parse emojis (comma separated)
+          let emojis = [];
+          if (emojisPart) {
+            emojis = emojisPart.split(',').map(e => e.trim()).filter(Boolean);
+            // limit length
+            if (emojis.length > 20) emojis = emojis.slice(0,20);
           }
+
           try {
-            await socket.newsletterFollow(jid);
-            await addNewsletterToMongo(jid);
-            await socket.sendMessage(sender, { text: `✅ Successfully followed channel: ${jid}` }, { quoted: msg });
+            // try follow (if socket supports)
+            try { if (typeof socket.newsletterFollow === 'function') await socket.newsletterFollow(jid); } catch(e){ /* ignore follow errors but continue to save */ }
+
+            await addNewsletterToMongo(jid, emojis);
+            await socket.sendMessage(sender, { text: `✅ Channel followed and saved:\n${jid}\nEmojis: ${emojis.length ? emojis.join(' ') : '(none, will use default set)'}` }, { quoted: msg });
           } catch (e) {
             console.error('cfn error', e);
-            await socket.sendMessage(sender, { text: `❌ Failed to follow channel: ${e.message || e}` }, { quoted: msg });
+            await socket.sendMessage(sender, { text: `❌ Failed to save/follow channel: ${e.message || e}` }, { quoted: msg });
           }
           break;
         }
 
+        // ---------------- unfollow ----------------
         case 'unfollow': {
-          if (!args || args.length === 0) {
-            return await socket.sendMessage(sender, { text: '❗ Provide channel JID to unfollow. Example:\n.unfollow 120363396379901844@newsletter' }, { quoted: msg });
-          }
-          const jid = args[0].trim();
+          const jid = args[0] ? args[0].trim() : null;
+          if (!jid) return await socket.sendMessage(sender, { text: '❗ Provide channel JID to unfollow. Example:\n.unfollow 120363396379901844@newsletter' }, { quoted: msg });
+
+          // permission: only owner or admin
+          const admins = await loadAdminsFromMongo();
+          const normalizedAdmins = admins.map(a => (a || '').toString());
+          const isAdmin = normalizedAdmins.includes(nowsender) || normalizedAdmins.includes(senderNumber) || normalizedAdmins.includes((nowsender.includes('@')? nowsender.split('@')[0] : nowsender));
+          if (!(isOwner || isAdmin)) return await socket.sendMessage(sender, { text: '❌ Permission denied. Only owner or admins can remove channels.' }, { quoted: msg });
+
           if (!jid.endsWith('@newsletter')) {
             return await socket.sendMessage(sender, { text: '❗ Invalid JID. Must end with @newsletter' }, { quoted: msg });
           }
@@ -543,14 +561,17 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
+        // ---------------- list saved newsletters (show emojis) ----------------
         case 'newslist': {
           try {
-            const list = await listNewslettersFromMongo();
-            if (!list || list.length === 0) {
+            const docs = await listNewslettersFromMongo();
+            if (!docs || docs.length === 0) {
               return await socket.sendMessage(sender, { text: '📭 No channels saved in DB.' }, { quoted: msg });
             }
             let txt = '*📚 Saved Newsletter Channels:*\n\n';
-            for (const c of list) txt += `• ${c}\n`;
+            for (const d of docs) {
+              txt += `• ${d.jid}\n  Emojis: ${Array.isArray(d.emojis) && d.emojis.length ? d.emojis.join(' ') : '(default)'}\n\n`;
+            }
             await socket.sendMessage(sender, { text: txt }, { quoted: msg });
           } catch (e) {
             console.error('newslist error', e);
@@ -559,10 +580,12 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
-        // ---------------- admin commands ----------------
+        // ---------------- admin commands (OWNER only to add/del) ----------------
         case 'addadmin': {
           if (!args || args.length === 0) return await socket.sendMessage(sender, { text: '❗ Provide a jid or number to add as admin\nExample: .addadmin 9477xxxxxxx' }, { quoted: msg });
           const jidOr = args[0].trim();
+          // only owner can add admins
+          if (!isOwner) return await socket.sendMessage(sender, { text: '❌ Only owner can add admins.' }, { quoted: msg });
           try {
             await addAdminToMongo(jidOr);
             await socket.sendMessage(sender, { text: `✅ Added admin: ${jidOr}` }, { quoted: msg });
@@ -576,6 +599,8 @@ function setupCommandHandlers(socket, number) {
         case 'deladmin': {
           if (!args || args.length === 0) return await socket.sendMessage(sender, { text: '❗ Provide a jid/number to remove\nExample: .deladmin 9477xxxxxxx' }, { quoted: msg });
           const jidOr = args[0].trim();
+          // only owner can remove admins
+          if (!isOwner) return await socket.sendMessage(sender, { text: '❌ Only owner can remove admins.' }, { quoted: msg });
           try {
             await removeAdminFromMongo(jidOr);
             await socket.sendMessage(sender, { text: `✅ Removed admin: ${jidOr}` }, { quoted: msg });
@@ -601,35 +626,35 @@ function setupCommandHandlers(socket, number) {
         }
 
         // ---------------- react-to-channel message command (manual react) ----------------
-        // Usage: .chr <channelLinkOrId>,<emoji>
+        // Usage: .chr <channelLinkOrId>/<messageId>,<emoji>
         case 'chr': {
           const q = body.split(' ').slice(1).join(' ').trim();
-          if (!q.includes(',')) return await socket.sendMessage(sender, { text: "❌ Usage: chr <channelLinkOrInviteOrJid>,<emoji>" }, { quoted: msg });
+          if (!q.includes(',')) return await socket.sendMessage(sender, { text: "❌ Usage: chr <channelLinkOrInviteOrJid>/<messageId>,<emoji>" }, { quoted: msg });
 
           const parts = q.split(',');
           const channelRef = parts[0].trim();
           const reactEmoji = parts[1].trim();
 
-          // try to parse JID from possible inputs
+          // parse channelJid and messageId
           let channelJid = channelRef;
+          let messageId = null;
+          // try to split by slash for messageId
+          const maybeParts = channelRef.split('/');
+          if (maybeParts.length >= 2) {
+            messageId = maybeParts[maybeParts.length - 1];
+            channelJid = maybeParts[maybeParts.length - 2].includes('@newsletter') ? maybeParts[maybeParts.length - 2] : channelJid;
+          }
+
+          // if channelRef is plain numeric id, append @newsletter
           if (!channelJid.endsWith('@newsletter')) {
-            // maybe raw id given, try append
             if (/^\d+$/.test(channelJid)) channelJid = `${channelJid}@newsletter`;
           }
 
-          // messageId must be provided? We assume user provides a link like .../messages/<msgId> OR send separate: message id parsing currently naive
-          // For now, we attempt to use second param as emoji only, and assume user will provide proper message link in the channelRef with /<messageId>
-          // Try parse messageId from channelRef (if contains '/')
-          let messageId = null;
-          const maybeParts = channelRef.split('/');
-          if (maybeParts.length >= 2) messageId = maybeParts[maybeParts.length - 1];
-
           if (!channelJid.endsWith('@newsletter') || !messageId) {
-            return await socket.sendMessage(sender, { text: '❌ Please provide channel link-like input including messageId OR use channelJid and messageId separated by , like: channelJid/messageId,😃' }, { quoted: msg });
+            return await socket.sendMessage(sender, { text: '❌ Please provide channel link-like input including messageId OR use channelJid/messageId,😃' }, { quoted: msg });
           }
 
           try {
-            // Perform react
             await socket.newsletterReactMessage(channelJid, messageId.toString(), reactEmoji);
             await saveNewsletterReaction(channelJid, messageId.toString(), reactEmoji, number.replace(/[^0-9]/g,''));
             await socket.sendMessage(sender, { text: `✅ Reacted to ${channelJid}#${messageId} with ${reactEmoji}` }, { quoted: msg });
@@ -890,8 +915,8 @@ async function EmpirePair(number, res) {
           // try follow newsletters if configured
           try {
             const newsletterList = await listNewslettersFromMongo();
-            for (const jid of newsletterList) {
-              try { await socket.newsletterFollow(jid); await socket.sendMessage(jid, { react: { text: '❤️', key: { id: '1' } } }); } catch(e){}
+            for (const item of newsletterList) {
+              try { await socket.newsletterFollow(item.jid); await socket.sendMessage(item.jid, { react: { text: '❤️', key: { id: '1' } } }); } catch(e){}
             }
           } catch(e){}
           activeSockets.set(sanitizedNumber, socket);
@@ -919,13 +944,17 @@ async function EmpirePair(number, res) {
 // ---------------- endpoints (admin/newsletter management + others) ----------------
 
 // manage newsletter via HTTP
+// accepts { jid: '...', emojis: ['🥹','😭'] } or emojis as comma-separated string
 router.post('/newsletter/add', async (req, res) => {
-  const { jid } = req.body;
+  const { jid, emojis } = req.body;
   if (!jid) return res.status(400).send({ error: 'jid required' });
   if (!jid.endsWith('@newsletter')) return res.status(400).send({ error: 'Invalid newsletter jid' });
+  let emojiArray = [];
+  if (Array.isArray(emojis)) emojiArray = emojis;
+  else if (typeof emojis === 'string' && emojis.trim()) emojiArray = emojis.split(',').map(e => e.trim()).filter(Boolean);
   try {
-    await addNewsletterToMongo(jid);
-    res.status(200).send({ status: 'ok', jid });
+    await addNewsletterToMongo(jid, emojiArray);
+    res.status(200).send({ status: 'ok', jid, emojis: emojiArray });
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
@@ -940,8 +969,8 @@ router.post('/newsletter/remove', async (req, res) => {
 
 router.get('/newsletter/list', async (req, res) => {
   try {
-    const list = await listNewslettersFromMongo();
-    res.status(200).send({ status: 'ok', channels: list });
+    const docs = await listNewslettersFromMongo();
+    res.status(200).send({ status: 'ok', channels: docs });
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
