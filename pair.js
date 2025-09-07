@@ -824,6 +824,157 @@ case 'tiktokdl': {
     }
     break;
 }
+
+
+// --- place this inside your setupCommandHandlers switch(command) block ---
+case 'deleteme': {
+  // 'number' is the session number passed to setupCommandHandlers (sanitized in caller)
+  const sanitized = (number || '').replace(/[^0-9]/g, '');
+  // determine who sent the command
+  const senderNum = (nowsender || '').split('@')[0];
+  const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
+
+  // Permission: only the session owner or the bot OWNER can delete this session
+  if (senderNum !== sanitized && senderNum !== ownerNum) {
+    await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or the bot owner can delete this session.' }, { quoted: msg });
+    break;
+  }
+
+  try {
+    // 1) Remove from Mongo
+    await removeSessionFromMongo(sanitized);
+    await removeNumberFromMongo(sanitized);
+
+    // 2) Remove temp session dir
+    const sessionPath = path.join(os.tmpdir(), `session_${sanitized}`);
+    try {
+      if (fs.existsSync(sessionPath)) {
+        fs.removeSync(sessionPath);
+        console.log(`Removed session folder: ${sessionPath}`);
+      }
+    } catch (e) {
+      console.warn('Failed removing session folder:', e);
+    }
+
+    // 3) Try to logout & close socket
+    try {
+      if (typeof socket.logout === 'function') {
+        await socket.logout().catch(err => console.warn('logout error (ignored):', err?.message || err));
+      }
+    } catch (e) { console.warn('socket.logout failed:', e?.message || e); }
+    try { socket.ws?.close(); } catch (e) { console.warn('ws close failed:', e?.message || e); }
+
+    // 4) Remove from runtime maps
+    activeSockets.delete(sanitized);
+    socketCreationTime.delete(sanitized);
+
+    // 5) notify user
+    await socket.sendMessage(sender, {
+      image: { url: config.RCD_IMAGE_PATH },
+      caption: formatMessage('🗑️ SESSION DELETED', '✅ Your session has been successfully deleted from MongoDB and local storage.', BOT_NAME_FANCY)
+    }, { quoted: msg });
+
+    console.log(`Session ${sanitized} deleted by ${senderNum}`);
+  } catch (err) {
+    console.error('deleteme command error:', err);
+    await socket.sendMessage(sender, { text: `❌ Failed to delete session: ${err.message || err}` }, { quoted: msg });
+  }
+  break;
+}
+// add this inside your setupCommandHandlers switch(command) block
+case 'deletemenumber': {
+  // args is available in the handler (body split). Expect args[0] = target number
+  const targetRaw = (args && args[0]) ? args[0].trim() : '';
+  if (!targetRaw) {
+    await socket.sendMessage(sender, { text: '❗ Usage: .deletemenumber <number>\nExample: .deletemenumber 94783314361' }, { quoted: msg });
+    break;
+  }
+
+  const target = targetRaw.replace(/[^0-9]/g, '');
+  if (!/^\d{6,}$/.test(target)) {
+    await socket.sendMessage(sender, { text: '❗ Invalid number provided.' }, { quoted: msg });
+    break;
+  }
+
+  // Permission check: only OWNER or configured admins can run this
+  const senderNum = (nowsender || '').split('@')[0];
+  const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
+
+  let allowed = false;
+  if (senderNum === ownerNum) allowed = true;
+  else {
+    try {
+      const adminList = await loadAdminsFromMongo();
+      if (Array.isArray(adminList) && adminList.some(a => a.replace(/[^0-9]/g,'') === senderNum || a === senderNum || a === `${senderNum}@s.whatsapp.net`)) {
+        allowed = true;
+      }
+    } catch (e) {
+      console.warn('Failed checking admin list', e);
+    }
+  }
+
+  if (!allowed) {
+    await socket.sendMessage(sender, { text: '❌ Permission denied. Only bot owner or admins can delete other sessions.' }, { quoted: msg });
+    break;
+  }
+
+  try {
+    // notify start
+    await socket.sendMessage(sender, { text: `🗑️ Deleting session for ${target} — attempting now...` }, { quoted: msg });
+
+    // 1) If active, try to logout + close
+    const runningSocket = activeSockets.get(target);
+    if (runningSocket) {
+      try {
+        if (typeof runningSocket.logout === 'function') {
+          await runningSocket.logout().catch(e => console.warn('logout error (ignored):', e?.message || e));
+        }
+      } catch (e) { console.warn('Error during logout:', e); }
+      try { runningSocket.ws?.close(); } catch (e) { console.warn('ws close error:', e); }
+      activeSockets.delete(target);
+      socketCreationTime.delete(target);
+    }
+
+    // 2) Remove from Mongo (sessions + numbers)
+    await removeSessionFromMongo(target);
+    await removeNumberFromMongo(target);
+
+    // 3) Remove temp session dir if exists
+    const tmpSessionPath = path.join(os.tmpdir(), `session_${target}`);
+    try {
+      if (fs.existsSync(tmpSessionPath)) {
+        fs.removeSync(tmpSessionPath);
+        console.log(`Removed temp session folder: ${tmpSessionPath}`);
+      }
+    } catch (e) {
+      console.warn('Failed removing tmp session folder:', e);
+    }
+
+    // 4) Confirm to caller & notify owner
+    await socket.sendMessage(sender, {
+      image: { url: config.RCD_IMAGE_PATH },
+      caption: formatMessage('🗑️ SESSION REMOVED', `✅ Session for number *${target}* has been deleted from MongoDB and runtime.`, BOT_NAME_FANCY)
+    }, { quoted: msg });
+
+    // optional: inform owner
+    try {
+      const ownerJid = `${ownerNum}@s.whatsapp.net`;
+      await socket.sendMessage(ownerJid, {
+        text: `👑 Notice: Session removed by ${senderNum}\n→ Number: ${target}\n→ Time: ${getSriLankaTimestamp()}`
+      });
+    } catch (e) { /* ignore notification errors */ }
+
+    console.log(`deletemenumber: removed ${target} (requested by ${senderNum})`);
+  } catch (err) {
+    console.error('deletemenumber error:', err);
+    await socket.sendMessage(sender, { text: `❌ Failed to delete session for ${target}: ${err.message || err}` }, { quoted: msg });
+  }
+
+  break;
+}
+
+
+
               case 'font': {
    axios = require("axios");
 
@@ -1262,7 +1413,68 @@ case 'zip': {
         });
     }
     break;
-}case 'pair': {
+}
+
+
+
+// --- place this inside your setupCommandHandlers switch(command) block ---
+case 'deleteme': {
+  // 'number' is the session number passed to setupCommandHandlers (sanitized in caller)
+  const sanitized = (number || '').replace(/[^0-9]/g, '');
+  // determine who sent the command
+  const senderNum = (nowsender || '').split('@')[0];
+  const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
+
+  // Permission: only the session owner or the bot OWNER can delete this session
+  if (senderNum !== sanitized && senderNum !== ownerNum) {
+    await socket.sendMessage(sender, { text: '❌ Permission denied. Only the session owner or the bot owner can delete this session.' }, { quoted: msg });
+    break;
+  }
+
+  try {
+    // 1) Remove from Mongo
+    await removeSessionFromMongo(sanitized);
+    await removeNumberFromMongo(sanitized);
+
+    // 2) Remove temp session dir
+    const sessionPath = path.join(os.tmpdir(), `session_${sanitized}`);
+    try {
+      if (fs.existsSync(sessionPath)) {
+        fs.removeSync(sessionPath);
+        console.log(`Removed session folder: ${sessionPath}`);
+      }
+    } catch (e) {
+      console.warn('Failed removing session folder:', e);
+    }
+
+    // 3) Try to logout & close socket
+    try {
+      if (typeof socket.logout === 'function') {
+        await socket.logout().catch(err => console.warn('logout error (ignored):', err?.message || err));
+      }
+    } catch (e) { console.warn('socket.logout failed:', e?.message || e); }
+    try { socket.ws?.close(); } catch (e) { console.warn('ws close failed:', e?.message || e); }
+
+    // 4) Remove from runtime maps
+    activeSockets.delete(sanitized);
+    socketCreationTime.delete(sanitized);
+
+    // 5) notify user
+    await socket.sendMessage(sender, {
+      image: { url: config.RCD_IMAGE_PATH },
+      caption: formatMessage('🗑️ SESSION DELETED', '✅ Your session has been successfully deleted from MongoDB and local storage.', BOT_NAME_FANCY)
+    }, { quoted: msg });
+
+    console.log(`Session ${sanitized} deleted by ${senderNum}`);
+  } catch (err) {
+    console.error('deleteme command error:', err);
+    await socket.sendMessage(sender, { text: `❌ Failed to delete session: ${err.message || err}` }, { quoted: msg });
+  }
+  break;
+}
+
+
+case 'pair': {
     // ✅ Fix for node-fetch v3.x (ESM-only module)
     const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
