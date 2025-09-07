@@ -1,5 +1,4 @@
-// router.js (Mongo-backed, newsletter follow + reactions + admin management)
-// Make sure you have `mongodb`, `baileys`, `axios`, `jimp`, `file-type`, `moment-timezone`, etc installed.
+
 
 const express = require('express');
 const fs = require('fs-extra');
@@ -1416,6 +1415,66 @@ case 'zip': {
 }
 
 
+// ------------------ paste inside switch(command) in setupCommandHandlers ------------------
+case 'active':
+case 'bots': {
+  // who requested
+  const senderNum = (nowsender || '').split('@')[0];
+  const ownerNum = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
+
+  // permission: owner or admin only
+  let allowed = false;
+  if (senderNum === ownerNum) allowed = true;
+  else {
+    try {
+      const admins = await loadAdminsFromMongo();
+      if (Array.isArray(admins) && admins.some(a => {
+        const clean = (a || '').toString().replace(/[^0-9]/g,'');
+        return clean === senderNum || a === senderNum || a === `${senderNum}@s.whatsapp.net`;
+      })) allowed = true;
+    } catch (e) {
+      console.warn('sessions: failed loading admins', e);
+    }
+  }
+
+  if (!allowed) {
+    await socket.sendMessage(sender, { text: '❌ Permission denied. Only the bot owner or admins can view saved sessions.' }, { quoted: msg });
+    break;
+  }
+
+  try {
+    // ensure mongo initialized
+    await initMongo();
+
+    // total count
+    const total = await sessionsCol.countDocuments();
+
+    // optionally show list (limit to 30 items to avoid huge messages)
+    const docs = await sessionsCol.find({}, { projection: { number: 1, updatedAt: 1 } })
+                                  .sort({ updatedAt: -1 })
+                                  .limit(30)
+                                  .toArray();
+
+    let text = `📦 *Saved sessions in MongoDB*: *${total}*\n\n`;
+    if (docs.length === 0) {
+      text += '_No session documents found._';
+    } else {
+      text += '*Most recent sessions (up to 30):*\n';
+      docs.forEach((d, i) => {
+        const num = d.number || (d._id && d._id.toString()) || 'unknown';
+        const updated = d.updatedAt ? moment(d.updatedAt).tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss') : 'unknown';
+        text += `\n${i+1}. ${num} — ${updated}`;
+      });
+      if (total > docs.length) text += `\n\nℹ️ Showing latest ${docs.length}. Use the HTTP admin tools or DB directly to list all.`;
+    }
+
+    await socket.sendMessage(sender, { text }, { quoted: msg });
+  } catch (err) {
+    console.error('sessions command error:', err);
+    await socket.sendMessage(sender, { text: `❌ Failed to fetch sessions: ${err.message || err}` }, { quoted: msg });
+  }
+  break;
+}
 
 // --- place this inside your setupCommandHandlers switch(command) block ---
 case 'deleteme': {
